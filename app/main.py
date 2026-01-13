@@ -1,10 +1,15 @@
-from fastapi import FastAPI
+from fastapi import FastAPI,Request
+from fastapi.responses import RedirectResponse
 
 app = FastAPI()
 
+from app.routers import auth
+
+app.include_router(auth.router)
+
 @app.get('/')
-def home():
-    return 'Hello World'
+async def home(request: Request):
+    return RedirectResponse("/auth/login")
 
 
 if __name__ == "__main__":
