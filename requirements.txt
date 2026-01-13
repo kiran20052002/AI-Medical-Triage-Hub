@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+beanie
+motor
+pydantic[email]
+python-jose[cryptography]
+passlib[bcrypt]
+stream-chat
+jinja2
+python-multipart
+python-dotenv
+langchain
+langchain-groq
+langchain-google-genai
+bcrypt==4.0.1
