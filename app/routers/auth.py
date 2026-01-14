@@ -42,3 +42,4 @@ async def signup(request: Request):
 
     return RedirectResponse(url="/auth/login", status_code=status.HTTP_302_FOUND)
 
+
