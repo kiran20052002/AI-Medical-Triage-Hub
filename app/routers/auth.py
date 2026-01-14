@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from fastapi.templating import Jinja2Templates
+from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import RedirectResponse, HTMLResponse
-from app.utils.auth_utils import get_password_hash
+from app.utils.auth_utils import verify_password, create_access_token, get_password_hash
 from app.models import Patient, Doctor
 from beanie import PydanticObjectId
+from datetime import timedelta
 
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
@@ -14,9 +16,67 @@ templates = Jinja2Templates(directory="app/templates")
 async def login_page(request: Request):
     return templates.TemplateResponse("auth/login.html", {"request": request})
 
+@router.post("/login")
+async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
+    user = await Patient.find_one(Patient.email == form_data.username)
+    role = "patient"
+    if not user:
+        user = None
+    
+    print(f"Login attempt for {user.email}")
+
+    if user: 
+        print(f"User found. Role: {role}")
+        is_valid = verify_password(form_data.password, user.password)
+        print(f"Password valid? {is_valid}")
+    else:
+        print("User not found in DB")
+    
+    if not user or not verify_password(form_data.password, user.password):
+        return templates.TemplateResponse("auth/login.html", {"request": request, "error": "Invalid credentials"})
+    
+    
+    # Create token
+    access_token = create_access_token(data={"sub": user.email, "role": role, "id": str(user.id)})
+
+    response = RedirectResponse(url="/tickets/", status_code=status.HTTP_302_FOUND)
+
+    # Set cookie
+    response.set_cookie(key="access_token", value=f"Bearer {access_token}", httponly=True)
+
+    return response
+
+@router.get("/admin-login", response_class=HTMLResponse)
+async def admin_login_page(request: Request):
+    return templates.TemplateResponse("auth/admin_login.html", {"request": request})
+
+@router.post("/doctor-login")
+async def login_doctor(
+    request: Request,
+    form_data: OAuth2PasswordRequestForm = Depends()
+):
+    user = await Doctor.find_one(Doctor.email == form_data.username)
+
+    if not user or user.role!="doctor" or not verify_password(form_data.password, user.password):
+        return templates.TemplateResponse("auth/doctor_login.html", {
+            "request": request,
+            "error": "Invalid doctor credentials"
+        })
+    
+    access_token = create_access_token(
+        data={"sub": user.email, "role": user.role, "id": str(user.id)},
+        expires_delta=timedelta(minutes=30)
+    )
+
+    response = RedirectResponse(url="/tickets/", status_code=303)
+    response.set_cookie(key="access_token", value=f"Bearer {access_token}", httponly=True)
+    return response
+
+
 @router.get("/signup")
 async def signup_page(request: Request):
     return templates.TemplateResponse("auth/signup.html", {"request": request})
+    
 
 @router.post("/signup")
 async def signup(request: Request):
