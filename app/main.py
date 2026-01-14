@@ -1,7 +1,17 @@
 from fastapi import FastAPI,Request
 from fastapi.responses import RedirectResponse
+from contextlib import asynccontextmanager
+from app.config.db import init_db
+from dotenv import load_dotenv
 
-app = FastAPI()
+load_dotenv()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()
+    yield
+
+app = FastAPI(lifespan=lifespan)
 
 from app.routers import auth
 
