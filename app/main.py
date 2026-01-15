@@ -13,9 +13,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-from app.routers import auth
+from app.routers import auth, admin
 
 app.include_router(auth.router)
+app.include_router(admin.router)
 
 @app.get('/')
 async def home(request: Request):

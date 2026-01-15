@@ -79,7 +79,7 @@ async def login_admin(
         expires_delta=timedelta(minutes=30)
     )
     
-    response = RedirectResponse(url="admin/dashboard", status_code=303)
+    response = RedirectResponse(url="/admin/dashboard", status_code=303)
     response.set_cookie(key="access_token", value=f"Bearer {access_token}", httponly=True)
     return response
 
@@ -87,7 +87,7 @@ async def login_admin(
 
 @router.get("/doctor-login", response_class = HTMLResponse)
 async def doctor_login_page(request: Request):
-    return tempplates.TemplateResponse("auth/doctor_login.html", {"request": request})
+    return templates.TemplateResponse("auth/doctor_login.html", {"request": request})
 
 @router.post("/doctor-login")
 async def login_doctor(
@@ -142,3 +142,8 @@ async def signup(request: Request):
     return RedirectResponse(url="/auth/login", status_code=status.HTTP_302_FOUND)
 
 
+@router.get("/logout")
+async def logout(response: Response):
+    response = RedirectResponse(url="/auth/login", status_code=status.HTTP_302_FOUND)
+    response.delete_cookie("access_token")
+    return response
