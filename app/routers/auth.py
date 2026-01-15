@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from fastapi.templating import Jinja2Templates
+import os
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import RedirectResponse, HTMLResponse
 from app.utils.auth_utils import verify_password, create_access_token, get_password_hash
@@ -56,22 +57,17 @@ async def login_admin(
     form_data: OAuth2PasswordRequestForm = Depends()
 ):
     
+    env_email = os.getenv("ADMIN_EMAIL")
+    env_password = os.getenv("ADMIN_PASSWORD")
+    
+    auth_success = False
+    
     if env_email and env_password and form_data.username == env_email and form_data.password == env_password:
         auth_success = True
-        # Ensure ID exists for token
-        user = await Patient.find_one(Patient.email == env_email)
-        if not user:
-             # Create admin user if missing but matches env
-             hashed = get_password_hash(env_password)
-             user = Patient(email=env_email, password=hashed, role="admin")
-             await user.insert()
     else:
-        # Fallback to DB check
-        user = await Patient.find_one(Patient.email == form_data.username)
-        if user and user.role == "admin" and verify_password(form_data.password, user.password):
-            auth_success = True
+        auth_success = False
     
-    if not auth_success or not user:
+    if not auth_success:
         return templates.TemplateResponse("auth/admin_login.html", {
             "request": request,
             "error": "Invalid admin credentials"
@@ -79,7 +75,7 @@ async def login_admin(
 
     # Create access token
     access_token = create_access_token(
-        data={"sub": user.email, "role": user.role, "id": str(user.id)},
+        data={"sub": env_email, "role": "admin", "id": "000000000000000000000000"},
         expires_delta=timedelta(minutes=30)
     )
     
