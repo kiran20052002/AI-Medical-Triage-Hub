@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}Doctor Dashboard - Medical Triage Hub{% endblock %}
+
+{% block content %}
+<div class="bg-base-200 min-h-screen">
+
+    <div class="navbar bg-base-300 shadow-md px-4 flex justify-between">
+    <div class="text-xl font-bold">Medical Triage Hub</div>
+    <div class="flex items-center gap-4">
+        <span class="text-sm">Dr. {{ user.email }}</span>
+        <div class="badge bg-teal-600 text-white border-none shadow-md shadow-teal-500/30">Doctor</div>
+        <a href="/auth/logout" class="btn btn-sm btn-ghost">Logout</a>
+    </div>
+    </div>
+
+    <div class="max-w-4xl mx-auto mt-8 p-4">
+        <h1 class="text-2xl font-bold mb-4">Doctor Dashboard</h1>
+    </div>
+</div>
+{% endblock %}
