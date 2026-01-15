@@ -50,6 +50,49 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
 async def admin_login_page(request: Request):
     return templates.TemplateResponse("auth/admin_login.html", {"request": request})
 
+@router.post("/admin-login")
+async def login_admin(
+    request: Request,
+    form_data: OAuth2PasswordRequestForm = Depends()
+):
+    
+    if env_email and env_password and form_data.username == env_email and form_data.password == env_password:
+        auth_success = True
+        # Ensure ID exists for token
+        user = await Patient.find_one(Patient.email == env_email)
+        if not user:
+             # Create admin user if missing but matches env
+             hashed = get_password_hash(env_password)
+             user = Patient(email=env_email, password=hashed, role="admin")
+             await user.insert()
+    else:
+        # Fallback to DB check
+        user = await Patient.find_one(Patient.email == form_data.username)
+        if user and user.role == "admin" and verify_password(form_data.password, user.password):
+            auth_success = True
+    
+    if not auth_success or not user:
+        return templates.TemplateResponse("auth/admin_login.html", {
+            "request": request,
+            "error": "Invalid admin credentials"
+        })
+
+    # Create access token
+    access_token = create_access_token(
+        data={"sub": user.email, "role": user.role, "id": str(user.id)},
+        expires_delta=timedelta(minutes=30)
+    )
+    
+    response = RedirectResponse(url="admin/dashboard", status_code=303)
+    response.set_cookie(key="access_token", value=f"Bearer {access_token}", httponly=True)
+    return response
+
+
+
+@router.get("/doctor-login", response_class = HTMLResponse)
+async def doctor_login_page(request: Request):
+    return tempplates.TemplateResponse("auth/doctor_login.html", {"request": request})
+
 @router.post("/doctor-login")
 async def login_doctor(
     request: Request,
