@@ -33,4 +33,20 @@ class Doctor(Document):
         name = "doctors"
 
 
+class Ticket(Document):
+    title: str
+    description: str
+    status: str = "TODO"
+    created_by: PydanticObjectId = Field(alias="createdBy")
+    assigned_to: Optional[PydanticObjectId] = Field(default=None, alias="assignedTo")
+    priority: Optional[str] = None
+    channel_id: Optional[str] = Field(default=None, alias="channelId")
+    deadline: Optional[datetime] = None
+    helpful_notes: Optional[str] = Field(default=None, alias="helpfulNotes")
+    suggested_solution: Optional[str] = Field(default=None, alias="suggestedSolution")
+    specialist: List[str] = []
+    created_at: datetime = Field(default_factory=datetime.now, alias="createdAt")
+
+    class Settings(BaseConfig.Config):
+        name = "tickets"
 
