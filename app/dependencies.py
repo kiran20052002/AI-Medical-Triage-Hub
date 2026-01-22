@@ -29,3 +29,14 @@ async def get_current_user(request: Request):
         return user
     except Exception:
         return None
+
+
+async def require_user(user = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_302_FOUND,
+            detail="Not authenticated",
+            headers={"Location": "/auth/login"},
+        )
+    
+    return user

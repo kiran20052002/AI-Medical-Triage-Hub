@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Request, Depends, Form, BackgroundTasks
 from fastapi.templating import Jinja2Templates
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, require_user
 from fastapi.responses import RedirectResponse
 from app.models import Ticket, Doctor, Patient
 
@@ -41,7 +41,7 @@ async def process_ticket_ai(ticket_id: str, title: str, description: str):
 
 
 @router.get("/")
-async def get_tickets(request: Request, user = Depends(get_current_user)):
+async def get_tickets(request: Request, user = Depends(require_user)):
     if not user:
         return RedirectResponse("/auth/login")
     
@@ -52,13 +52,14 @@ async def get_tickets(request: Request, user = Depends(get_current_user)):
 
 
 
+
 @router.post("/create")
 async def create_ticket(
     request: Request,
     background_tasks: BackgroundTasks,
     title: str = Form(...),
     description: str = Form(...),
-    user = Depends(get_current_user)
+    user = Depends(require_user)
 ):
     ticket = Ticket(
         title=title,
