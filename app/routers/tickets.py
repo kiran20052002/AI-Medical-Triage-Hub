@@ -1,8 +1,18 @@
-from fastapi import APIRouter, Request, Depends, Form, BackgroundTasks
+from fastapi import APIRouter, Depends, Request, Form, BackgroundTasks
 from fastapi.templating import Jinja2Templates
-from app.dependencies import get_current_user, require_user
 from fastapi.responses import RedirectResponse
-from app.models import Ticket, Doctor, Patient
+from app.dependencies import get_current_user, require_user
+from app.models import Ticket, Patient, Doctor
+from datetime import datetime
+import os
+from stream_chat import StreamChat
+from dotenv import load_dotenv
+
+load_dotenv()
+api_key = os.getenv("STREAM_API_KEY")
+api_secret = os.getenv("STREAM_API_SECRET")
+server_client = StreamChat(api_key=api_key, api_secret=api_secret)
+
 
 router = APIRouter(prefix="/tickets", tags=["Tickets"])
 templates = Jinja2Templates(directory="app/templates")
@@ -16,7 +26,9 @@ async def process_ticket_ai(ticket_id: str, title: str, description: str):
     if not ticket:
         return
     
+    # Analyze Ticket using AI
     analysis = await analyze_ticket_ai(title, description)
+
     if analysis:
         ticket.helpful_notes = analysis.get("helpfulNotes")
         ticket.priority = analysis.get("priority")
@@ -32,6 +44,56 @@ async def process_ticket_ai(ticket_id: str, title: str, description: str):
             if doctor:
                 ticket.assigned_to = doctor.id
                 ticket.status = "In Progress"
+
+
+                # Create Chat Channel
+                try:
+                    from stream_chat import StreamChat
+                    import os
+
+                    api_key = os.getenv("STREAM_API_KEY")
+                    api_secret = os.getenv("STREAM_API_SECRET")
+                    task_client = StreamChat(api_key=api_key, api_secret=api_secret)
+
+                    patient = await Patient.get(ticket.created_by)
+
+                    patient_id = str(ticket.created_by)
+                    doctor_id = str(doctor.id)
+
+                    patient_name = patient.email if patient else "Unknown Patient"
+                    doctor_name = doctor.email if doctor else "Unknown Doctor"
+
+                    task_client.upsert_user(
+                        {
+                            "id": patient_id,
+                            "role": "user",
+                            "name": patient_name
+                        }
+                    )
+                    task_client.upsert_user({
+                        "id": doctor_id,
+                        "role": "user",
+                        "name": doctor_name
+                    })
+
+                    channel_id = f"ticket-{ticket.id}"
+                    channel = task_client.channel(
+                        "messaging",
+                        channel_id,
+                        {
+                            "created_by_id": patient_id,
+                            "members": [patient_id, doctor_id],
+                            "name": f"Ticket: {ticket.title}"
+                        }
+                    )
+
+                    channel.create(patient_id)
+                    ticket.channel_id = channel_id
+                    print(f"Chat Channel Created: {channel_id}")
+
+                except Exception as e:
+                    print(f"Error creating chat channel: {e}")
+
 
                 print(f"Auto-Assigned Ticket to Dr. {doctor.email}")
             else:
