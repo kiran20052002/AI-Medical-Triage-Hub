@@ -40,7 +40,7 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
     # Create token
     access_token = create_access_token(data={"sub": user.email, "role": role, "id": str(user.id)})
 
-    response = RedirectResponse(url="/tickets/", status_code=status.HTTP_302_FOUND)
+    response = RedirectResponse(url="/tickets/", status_code=status.HTTP_303_SEE_OTHER)
 
     # Set cookie
     response.set_cookie(key="access_token", value=f"Bearer {access_token}", httponly=True)
@@ -79,7 +79,7 @@ async def login_admin(
         expires_delta=timedelta(minutes=30)
     )
     
-    response = RedirectResponse(url="/admin/dashboard", status_code=303)
+    response = RedirectResponse(url="/admin/dashboard", status_code=status.HTTP_303_SEE_OTHER)
     response.set_cookie(key="access_token", value=f"Bearer {access_token}", httponly=True)
     return response
 
@@ -107,7 +107,7 @@ async def login_doctor(
         expires_delta=timedelta(minutes=30)
     )
 
-    response = RedirectResponse(url="/tickets/", status_code=303)
+    response = RedirectResponse(url="/tickets/", status_code=status.HTTP_303_SEE_OTHER)
     response.set_cookie(key="access_token", value=f"Bearer {access_token}", httponly=True)
     return response
 
@@ -139,11 +139,11 @@ async def signup(request: Request):
 
     await user.insert()
 
-    return RedirectResponse(url="/auth/login", status_code=status.HTTP_302_FOUND)
+    return RedirectResponse(url="/auth/login", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.get("/logout")
 async def logout(response: Response):
-    response = RedirectResponse(url="/auth/login", status_code=status.HTTP_302_FOUND)
+    response = RedirectResponse(url="/auth/login", status_code=status.HTTP_303_SEE_OTHER)
     response.delete_cookie("access_token")
     return response
