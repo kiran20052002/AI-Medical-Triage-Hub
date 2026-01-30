@@ -137,3 +137,97 @@ async def create_ticket(
     
 
 
+@router.get("/{id}")
+async def get_ticket_detail(id: str, request: Request, user = Depends(require_user)):
+    ticket = await Ticket.get(id)
+    if not ticket:
+        return RedirectResponse("/tickets")
+    
+    assigned_email = None
+    if ticket.assigned_to:
+        doc = await Doctor.find_one(Doctor.id == ticket.assigned_to)
+        if doc:
+            assigned_email = doc.email
+        else:
+            assigned_email = "Unknown Doctor"
+    else:
+        assigned_email = "Unassigned"
+
+    return templates.TemplateResponse("ticket_detail.html", {"request": request, "user": user, "ticket": ticket, "assigned_email": assigned_email})
+
+
+@router.post("/{id}/analyze-closure")
+async def analyze_closure(id: str, background_tasks: BackgroundTasks, user = Depends(require_user)):
+
+    from app.utils.ai_utils import generate_closure_summary, analyze_ticket_chat_ai
+
+    ticket = await Ticket.get(id)
+    if not ticket:
+        return RedirectResponse("/tickets")
+    
+    # only doctor/admin can close
+    if user.role == "patient" and ticket.created_by != user.id:
+        return RedirectResponse(f"/tickets/{id}")
+    
+    # 1. Fetch Chat History(if exists)
+    chat_history_text = ""
+    if ticket.channel_id:
+        try:
+            channel = server_client.channel("messaging", ticket.channel_id)
+            messages = channel.query(messages={'limit': 50})['messages']
+
+            # Format for AI
+            formatted_messages = []
+            for m in messages:
+                formatted_messages.append({
+                    "user": {"name": m.get("user", {}).get("name", "Unknown")},
+                    "text": m.get("text", "")
+                })
+            
+            #2. Analyze chat for closure
+            analysis = await analyze_ticket_chat_ai(formatted_messages)
+            if analysis and analysis.get("recommendedStatus") == "In Progress":
+                reason = analysis.get("reasoning", "AI suggests further discussion.")
+                print(f"Smart Close Blocked: {reason}")
+
+                # We can't easily show a flash message with RedirectResponse in standard FastAPI 
+                # without SessionMiddleware/Cookies logic setup.
+                # So we will update the helpful notes with the specific blocking reason.
+                note = f"Smart Close Aborted by AI.\nReason: {reason}"
+                if ticket.helpful_notes:
+                    ticket.helpful_notes += f"\n\n{note}"
+                else:
+                    ticket.helpful_notes = note
+                await ticket.save()
+
+                return {"status": "blocked", "message": f"Smart Close Blocked: {reason}"}
+
+            # If completed, collect text for summary
+            chat_history_text = "\n".join[[f"{m['user']['name']}: {m['text']}" for m in formatted_messages]]
+        
+        except Exception as e:
+            print(f"Warning: Failed to fetch chat history: {e}")
+    
+    # 3. Generate Summary
+    # include chat history in context
+    context = (ticket.helpful_notes or "") + "\n\nChat History:\n" + chat_history_text
+    summary = await generate_closure_summary(ticket.title, ticket.description, context)
+
+    ticket.status = "completed"
+
+    if ticket.helpful_notes:
+        ticket.helpful_notes += f"\n\n[CLOSURE]: {summary}"
+    else:
+        ticket.helpful_notes = f"[CLOSURE]: {summary}"
+    
+
+    await ticket.save()
+
+    return {"status": "closed", "message": "Ticket Closed Successfully. AI Summary added."}
+
+
+
+
+
+    
+    
