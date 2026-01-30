@@ -50,3 +50,13 @@ class Ticket(Document):
     class Settings(BaseConfig.Config):
         name = "tickets"
 
+class Report(Document):
+    content: dict
+    formatted_report: Optional[str] = Field(default=None, alias="formattedReport")
+    embedding: List[float]
+    created_at: datetime = Field(default_factory=datetime.now)
+
+    class Settings(BaseConfig.Config):
+        name = "reports"
+    
+    

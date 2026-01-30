@@ -1,6 +1,7 @@
 import os
 from typing import List, Dict, Optional
 from langchain_groq import ChatGroq
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.messages import HumanMessage
@@ -11,6 +12,14 @@ load_dotenv()
 
 
 groq_api_key = os.getenv("GROQ_API_KEY")
+gemini_api_key = os.getenv("GEMINI_API_KEY")
+
+embeddings = None
+if gemini_api_key:
+    try:
+        embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=gemini_api_key)
+    except Exception as e:
+        print(f"Embeddings initialization failed: {e}")
 
 llm = None
 if groq_api_key:
@@ -29,6 +38,11 @@ class ChatAnalysis(BaseModel):
     confidence: float = Field(description="Confidence score between 0 and 100.")
     reasoning: str = Field(description="A short explanation of why this status is recommended.")
 
+class SOAPNote(BaseModel):
+    subjective: str = Field(description="Summarize patient's complaints, history, and symptoms.")
+    objective: str = Field(description="List direct observations from photos or exams mentioned in chat. IF NO PHOTOS/EXAMS, explicitly write 'None reported'.")
+    assessment: str = Field(description="Likely diagnosis based on symptoms.")
+    plan: str = Field(description="Treatment, tests ordered, and follow-up advice.")
 
 
 async def analyze_ticket_ai(title: str, description: str):
@@ -122,3 +136,54 @@ async def generate_closure_summary(title: str, description: str, history: str = 
     except Exception as e:
         print(f"Closure Summary Failed: {e}")
         return "Ticket closed. (AI Summary Failed)"
+
+
+
+
+async def generate_embedding(text: str) -> List[float]:
+    if not embeddings:
+        return []
+    
+    try:
+        return await embeddings.aembed_query(text)
+    
+    except Exception as e:
+        print(f"Embedding generation failed: {e}")
+        return []
+
+
+
+async def generate_soap_note(title: str, description: str, chat_histroy: str) -> Optional[dict]:
+    """
+    Generates a SOAP note from ticket info and chat history.
+    """
+    if not llm:
+        return None
+    
+    parser = JsonOutputParser(pydantic_object=SOAPNote)
+
+    prompt = PromptTemplate(
+        template="""You are an expert Medical AI Assistant. Your task is to generate a professional SOAP note (Subjective, Objective, Assessment, Plan) from a patient-doctor chat transcript.
+        
+        Ticket Info:
+        Title: {title}
+        Desc: {description}
+        
+        Chat Transcript:
+        {chat_history}
+        
+        {format_instructions}
+        """,
+        input_variables=["title", "description", "chat_history"],
+        partial_variables={"format_instructions": parser.get_format_instructions()},
+    ) 
+
+    chain = prompt | llm | parser
+
+    try:
+        result = await chain.ainvoke({"title": title, "description": description, "chat_history": chat_history})
+        return result
+    
+    except Exception as e:
+        print(f"SOAP Note Generation Failed: {e}")
+        return None
