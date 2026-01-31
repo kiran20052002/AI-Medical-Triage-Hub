@@ -38,11 +38,11 @@ class ChatAnalysis(BaseModel):
     confidence: float = Field(description="Confidence score between 0 and 100.")
     reasoning: str = Field(description="A short explanation of why this status is recommended.")
 
-class SOAPNote(BaseModel):
-    subjective: str = Field(description="Summarize patient's complaints, history, and symptoms.")
-    objective: str = Field(description="List direct observations from photos or exams mentioned in chat. IF NO PHOTOS/EXAMS, explicitly write 'None reported'.")
-    assessment: str = Field(description="Likely diagnosis based on symptoms.")
-    plan: str = Field(description="Treatment, tests ordered, and follow-up advice.")
+class TriageReport(BaseModel):
+    chief_complaint: str = Field(description="The patient's primary issue, history, and story (Subjective).")
+    symptoms_observations: str = Field(description="Specific symptoms extracted from chat, or observations from reported photos. Example: 'Fever 38C', 'Redness on left arm'.")
+    triage_assessment: str = Field(description="AI's analysis of the urgency and potential medical area (Assessment).")
+    recommended_plan: str = Field(description="Suggested next steps (e.g., 'Go to ER', 'See GP') and immediate home care advice (Plan).")
 
 
 async def analyze_ticket_ai(title: str, description: str):
@@ -153,17 +153,17 @@ async def generate_embedding(text: str) -> List[float]:
 
 
 
-async def generate_soap_note(title: str, description: str, chat_histroy: str) -> Optional[dict]:
+async def generate_triage_report(title: str, description: str, chat_histroy: str) -> Optional[dict]:
     """
-    Generates a SOAP note from ticket info and chat history.
+    Generates a Clinical Triage Report from ticket info and chat history.
     """
     if not llm:
         return None
     
-    parser = JsonOutputParser(pydantic_object=SOAPNote)
+    parser = JsonOutputParser(pydantic_object=TriageReport)
 
     prompt = PromptTemplate(
-        template="""You are an expert Medical AI Assistant. Your task is to generate a professional SOAP note (Subjective, Objective, Assessment, Plan) from a patient-doctor chat transcript.
+        template="""You are an expert Medical AI Assistant. Your task is to generate a professional Clinical Triage Report from a patient-doctor chat transcript.
         
         Ticket Info:
         Title: {title}
@@ -185,5 +185,5 @@ async def generate_soap_note(title: str, description: str, chat_histroy: str) ->
         return result
     
     except Exception as e:
-        print(f"SOAP Note Generation Failed: {e}")
+        print(f"Triage Report Generation Failed: {e}")
         return None

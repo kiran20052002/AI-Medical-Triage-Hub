@@ -24,7 +24,7 @@ async def generate_report(
     ticket_id: str = Form(...),
     user = Depends(require_user)
 ):
-    from app.utils.ai_utils import generate_soap_note
+    from app.utils.ai_utils import generate_triage_report
     from stream_chat import StreamChat
     import os
 
@@ -50,37 +50,37 @@ async def generate_report(
         except Exception as e:
             print(f"Failed to fetch chat for report: {e}")
     
-    # 2. Generate SOAP Note
-    soap_content = await generate_soap_note(ticket.ticket, ticket.description, chat_transcript)
+    # 2. Generate Triage Report
+    triage_content = await generate_triage_report(ticket.title, ticket.description, chat_transcript)
 
-    if not soap_content:
-        soap_content = {
-            "subjective": f"Complaint: {ticket.title}\n{ticket.description}",
-            "objective": "None reported",
-            "assessment": "Pending AI analysis",
-            "plan": "Follow up required"
+    if not triage_content:
+        triage_content = {
+            "chief_complaint": f"Complaint: {ticket.title}\n{ticket.description}",
+            "symptoms_observations": "None reported",
+            "triage_assessment": "Pending AI analysis",
+            "recommended_plan": "Follow up required"
         }
     
 
-    # 3. Format Report
+    # 3. Format Report (Clinical Triage Summary)
     formatted_report = f"""
-    **SUBJECTIVE**: {soap_content.get('subjective', '')}
-    **OBJECTIVE**: {soap_content.get('objective', '')}
-    **ASSESSMENT**: {soap_content.get('assessment', '')}
-    **PLAN**: {soap_content.get('plan', '')}
+    **CHIEF COMPLAINT**: {triage_content.get('chief_complaint', '')}
+    **SYMPTOMS & OBSERVATIONS**: {triage_content.get('symptoms_observations', '')}
+    **ASSESSMENT**: {triage_content.get('triage_assessment', '')}
+    **PLAN**: {triage_content.get('recommended_plan', '')}
     """.strip()
 
     # 4. Save Report
     report = Report(
-        content=soap_content,
+        content=triage_content,
         formatted_report=formatted_report,
         ticket_id=str(ticket.id)
     )
 
-    soap_content['ticket_id'] = str(ticket.id)
-    soap_content['doctor_id'] = str(user.id)
+    triage_content['ticket_id'] = str(ticket.id)
+    triage_content['doctor_id'] = str(user.id)
 
-    report.content = soap_content
+    report.content = triage_content
     await report.insert()
 
     # 5. Update Ticket Status
@@ -88,7 +88,7 @@ async def generate_report(
     await ticket.save()
 
     # 6. Trigger Embedding
-    text_to_embed = f"Symptoms: {soap_content.get('subjective')}\nObservations: {soap_content.get('objective')}\nDiagnosis: {soap_content.get('assessment')}"
+    text_to_embed = f"Chief Complaint: {triage_content.get('chief_complaint')}\nSymptoms: {triage_content.get('symptoms_observations')}\nAssessment: {triage_content.get('triage_assessment')}"
     background_taks.add_task(process_report_embedding, str(report.id), text_to_embed)
 
     return RedirectResponse("/tickets", status_code=303)

@@ -1,4 +1,25 @@
-# AI-Medical-Traige-Hub
+# AI Medical Triage Hub
+
+An intelligent healthcare support platform that streamlines patient-doctor interactions using AI-powered triage and real-time chat.
+
+## Features
+
+- **AI Triage & Analysis**: Automatically analyzes patient tickets to estimate urgency and suggest relevant specialists.
+- **Clinical Triage Reports**: Generates professional summaries for doctors/admins after a conversation ends, replacing traditional SOAP notes with a chat-optimized format:
+  - **Chief Complaint**: The primary issue.
+  - **Symptoms & Observations**: Patient-reported symptoms.
+  - **Assessment**: AI-generated analysis of the situation.
+  - **Recommended Plan**: Suggested next steps (ER, GP, Home Care).
+- **Real-time Chat**: Integrated messaging between patients and doctors using StreamChat.
+- **Smart Routing**: Directs tickets to the appropriate personnel based on AI analysis.
+
+## Tech Stack
+
+- **Backend**: FastAPI (Python)
+- **Database**: MongoDB (Beanie ODM)
+- **AI/LLM**: Groq (Llama 3), Google Gemini (Embeddings)
+- **Real-time**: StreamChat
+- **Auth**: JWT (Stateless)
 
 ## Authentication
 

@@ -3,6 +3,7 @@ Hub{% endblock %} {% block content %}
 <div class="drawer lg:drawer-open">
   <input id="my-drawer-2" type="checkbox" class="drawer-toggle" />
   <div class="drawer-content flex flex-col items-center justify-center">
+    <!-- Page content -->
     <div class="navbar bg-base-100 lg:hidden">
       <div class="flex-none">
         <label for="my-drawer-2" class="btn btn-square btn-ghost">
@@ -25,6 +26,122 @@ Hub{% endblock %} {% block content %}
         <a class="btn btn-ghost normal-case text-xl">Medical Hub</a>
       </div>
     </div>
+
+    <div class="w-full p-10">
+      <div class="stats shadow w-full mb-10 bg-base-100">
+        <div class="stat">
+          <div class="stat-title">Total Patients</div>
+          <div class="stat-value text-primary">{{ total_patients }}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-title">Total Doctors</div>
+          <div class="stat-value text-secondary">{{ total_doctors }}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-title">Total Tickets</div>
+          <div class="stat-value">{{ total_tickets }}</div>
+        </div>
+      </div>
+
+      <div role="tablist" class="tabs tabs-boxed mb-6">
+        <a
+          role="tab"
+          class="tab tab-active"
+          id="tab-users"
+          onclick="switchTab('users')"
+          >Manage Doctors</a
+        >
+        <a
+          role="tab"
+          class="tab"
+          id="tab-reports"
+          onclick="switchTab('reports')"
+          >Medical Reports</a
+        >
+      </div>
+
+      <!-- Users Tab -->
+      <div id="content-users">
+        <input
+          type="text"
+          id="userSearch"
+          class="input input-bordered w-full mb-6"
+          placeholder="Search by email"
+          onkeyup="filterUsers()"
+        />
+
+        <div class="overflow-x-auto">
+          <table class="table" id="usersTable">
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Specialist</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for user in all_users %}
+              <tr class="user-row">
+                <td class="email-cell">{{ user.email }}</td>
+                <td>{{ user.role }}</td>
+                <td>
+                  {{ user.specialist | join(', ') if user.specialist else 'N/A'
+                  }}
+                </td>
+                <td>
+                  <!-- Edit button -->
+                  <button
+                    class="btn btn-xs btn-outline"
+                    onclick="openEditModal('{{ user.email }}', '{{ user.role }}', '{{ user.specialist | join(', ') if user.specialist else '' }}')"
+                  >
+                    Edit
+                  </button>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Reports Tab -->
+      <div id="content-reports" class="hidden">
+        {% if reports|length == 0 %}
+        <p class="text-gray-500">No reports generated yet.</p>
+        {% endif %}
+
+        <div class="space-y-4">
+          {% for report in reports %}
+          <div
+            class="collapse collapse-arrow bg-base-100 border border-base-300"
+          >
+            <input type="checkbox" />
+            <div class="collapse-title text-xl font-medium">
+              Report #{{ loop.index }}
+              <span class="text-sm text-gray-400"
+                >({{ report.created_at.strftime('%Y-%m-%d') }})</span
+              >
+            </div>
+            <div class="collapse-content">
+              <div class="prose max-w-none">
+                <h4>Plan</h4>
+                <p>{{ report.content.plan }}</p>
+                <div class="mt-4 flex justify-end">
+                  <button
+                    class="btn btn-sm btn-outline btn-accent"
+                    onclick="regenerateEmbedding('{{ report.id }}')"
+                  >
+                    🧠 Re-generate Embedding
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
   </div>
   <div class="drawer-side">
     <label for="my-drawer-2" class="drawer-overlay"></label>
@@ -44,4 +161,127 @@ Hub{% endblock %} {% block content %}
   </div>
 </div>
 
+<!-- Edit User Modal -->
+<dialog id="edit_user_modal" class="modal">
+  <div class="modal-box">
+    <h3 class="font-bold text-lg">Edit Doctor</h3>
+    <form method="dialog">
+      <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">
+        ✕
+      </button>
+    </form>
+
+    <div class="py-4">
+      <label class="label"><span class="label-text">Email</span></label>
+      <input
+        id="edit_email"
+        type="text"
+        class="input input-bordered w-full"
+        disabled
+      />
+
+      <label class="label mt-2"><span class="label-text">Role</span></label>
+      <select id="edit_role" class="select select-bordered w-full" disabled>
+        <option value="doctor">Doctor</option>
+        <option value="patient">Patient</option>
+        <option value="admin">Admin</option>
+      </select>
+
+      <label class="label mt-2"
+        ><span class="label-text">Specialist (comma separated)</span></label
+      >
+      <input
+        id="edit_specialist"
+        type="text"
+        class="input input-bordered w-full"
+      />
+
+      <div class="modal-action">
+        <button class="btn btn-success" onclick="saveUserChanges()">
+          Save Changes
+        </button>
+      </div>
+    </div>
+  </div>
+</dialog>
+
+<script>
+  let currentEditEmail = "";
+
+  function openEditModal(email, role, specialistArray) {
+    currentEditEmail = email;
+    document.getElementById("edit_email").value = email;
+    document.getElementById("edit_role").value = role;
+    document.getElementById("edit_specialist").value = specialistArray;
+    document.getElementById("edit_user_modal").showModal();
+  }
+
+  async function saveUserChanges() {
+    const role = document.getElementById("edit_role").value;
+    const specialistStr = document.getElementById("edit_specialist").value;
+    const specialist = specialistStr
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s);
+
+    try {
+      const res = await fetch("/admin/update-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: currentEditEmail,
+          role: role,
+          specialist: specialist,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        alert(data.message || "Updated successfully");
+        location.reload();
+      } else {
+        alert(data.error || "Update failed");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Error updating user");
+    }
+  }
+
+  function switchTab(tabName) {
+    document
+      .querySelectorAll(".tab")
+      .forEach((t) => t.classList.remove("tab-active"));
+    document.getElementById("tab-" + tabName).classList.add("tab-active");
+
+    if (tabName === "users") {
+      document.getElementById("content-users").classList.remove("hidden");
+      document.getElementById("content-reports").classList.add("hidden");
+    } else {
+      document.getElementById("content-users").classList.add("hidden");
+      document.getElementById("content-reports").classList.remove("hidden");
+    }
+  }
+
+  function filterUsers() {
+    const input = document.getElementById("userSearch");
+    const filter = input.value.toLowerCase();
+    const rows = document.querySelectorAll(".user-row");
+
+    rows.forEach((row) => {
+      const email = row.querySelector(".email-cell").textContent.toLowerCase();
+      if (email.includes(filter)) {
+        row.style.display = "";
+      } else {
+        row.style.display = "none";
+      }
+    });
+  }
+
+  async function regenerateEmbedding(reportId) {
+    // Placeholder call
+    alert("Embedding generation triggered for " + reportId);
+    // fetch('/api/reports/embed', ...)
+  }
+</script>
 {% endblock %}
