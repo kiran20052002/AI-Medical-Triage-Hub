@@ -77,7 +77,6 @@ Hub{% endblock %} {% block content %}
                 <th>Email</th>
                 <th>Role</th>
                 <th>Specialist</th>
-                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -88,15 +87,6 @@ Hub{% endblock %} {% block content %}
                 <td>
                   {{ user.specialist | join(', ') if user.specialist else 'N/A'
                   }}
-                </td>
-                <td>
-                  <!-- Edit button -->
-                  <button
-                    class="btn btn-xs btn-outline"
-                    onclick="openEditModal('{{ user.email }}', '{{ user.role }}', '{{ user.specialist | join(', ') if user.specialist else '' }}')"
-                  >
-                    Edit
-                  </button>
                 </td>
               </tr>
               {% endfor %}
@@ -161,93 +151,7 @@ Hub{% endblock %} {% block content %}
   </div>
 </div>
 
-<!-- Edit User Modal -->
-<dialog id="edit_user_modal" class="modal">
-  <div class="modal-box">
-    <h3 class="font-bold text-lg">Edit Doctor</h3>
-    <form method="dialog">
-      <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">
-        ✕
-      </button>
-    </form>
-
-    <div class="py-4">
-      <label class="label"><span class="label-text">Email</span></label>
-      <input
-        id="edit_email"
-        type="text"
-        class="input input-bordered w-full"
-        disabled
-      />
-
-      <label class="label mt-2"><span class="label-text">Role</span></label>
-      <select id="edit_role" class="select select-bordered w-full" disabled>
-        <option value="doctor">Doctor</option>
-        <option value="patient">Patient</option>
-        <option value="admin">Admin</option>
-      </select>
-
-      <label class="label mt-2"
-        ><span class="label-text">Specialist (comma separated)</span></label
-      >
-      <input
-        id="edit_specialist"
-        type="text"
-        class="input input-bordered w-full"
-      />
-
-      <div class="modal-action">
-        <button class="btn btn-success" onclick="saveUserChanges()">
-          Save Changes
-        </button>
-      </div>
-    </div>
-  </div>
-</dialog>
-
 <script>
-  let currentEditEmail = "";
-
-  function openEditModal(email, role, specialistArray) {
-    currentEditEmail = email;
-    document.getElementById("edit_email").value = email;
-    document.getElementById("edit_role").value = role;
-    document.getElementById("edit_specialist").value = specialistArray;
-    document.getElementById("edit_user_modal").showModal();
-  }
-
-  async function saveUserChanges() {
-    const role = document.getElementById("edit_role").value;
-    const specialistStr = document.getElementById("edit_specialist").value;
-    const specialist = specialistStr
-      .split(",")
-      .map((s) => s.trim())
-      .filter((s) => s);
-
-    try {
-      const res = await fetch("/admin/update-user", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: currentEditEmail,
-          role: role,
-          specialist: specialist,
-        }),
-      });
-
-      const data = await res.json();
-      if (res.ok) {
-        alert(data.message || "Updated successfully");
-        location.reload();
-      } else {
-        alert(data.error || "Update failed");
-      }
-    } catch (e) {
-      console.error(e);
-      alert("Error updating user");
-    }
-  }
-
   function switchTab(tabName) {
     document
       .querySelectorAll(".tab")
