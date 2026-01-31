@@ -36,7 +36,7 @@ async def get_token(user = Depends(require_user)):
     # sync user to stream
     server_client.upsert_user({
         "id": user_id,
-        "name": user.name,
+        "name": user.email,
         "role": "user"
     })
 

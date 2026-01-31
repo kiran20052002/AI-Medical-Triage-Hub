@@ -12,6 +12,29 @@ An intelligent healthcare support platform that streamlines patient-doctor inter
   - **Recommended Plan**: Suggested next steps (ER, GP, Home Care).
 - **Real-time Chat**: Integrated messaging between patients and doctors using StreamChat.
 - **Smart Routing**: Directs tickets to the appropriate personnel based on AI analysis.
+- **Vector Search**: Embeds medical reports for similarity search
+
+## User Roles & Capabilities
+
+### 🏥 Patient
+
+- Create support tickets describing their symptoms.
+- Chat with assigned doctors in real-time.
+- View status of their active cases.
+
+### 👨‍⚕️ Doctor
+
+- Receive assigned tickets based on specialization.
+- Live chat with patients to diagnose issues.
+- **One-Click Report Generation**: Generate an AI summary at the end of a consultation.
+- Mark tickets as resolved.
+
+### 🛡️ Admin
+
+- **Dashboard Overview**: View platform stats (Total Patients, Doctors, Tickets).
+- **Manage Doctors**: View list of registered specialists.
+- **Medical Reports**: Browse all AI-generated triage reports.
+- _Note: Admin accounts are virtual and configured via environment variables._
 
 ## Tech Stack
 

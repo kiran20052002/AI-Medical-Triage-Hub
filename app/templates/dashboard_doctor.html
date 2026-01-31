@@ -40,7 +40,8 @@ Hub{% endblock %} {% block content %}
 
           <div class="flex justify-between items-center mt-4 border-t pt-4">
             <div class="text-xs text-gray-500">
-              Requested by: {{ ticket.created_by }}<br />
+              Requested by: {{ patient_map.get(ticket.created_by,
+              ticket.created_by) }}<br />
               {{ ticket.created_at.strftime('%Y-%m-%d %H:%M') }}
             </div>
 

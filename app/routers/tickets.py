@@ -20,7 +20,7 @@ templates = Jinja2Templates(directory="app/templates")
 
 
 async def process_ticket_ai(ticket_id: str, title: str, description: str):
-    from app.utils.auth_utils import analyze_ticket_ai
+    from app.utils.ai_utils import analyze_ticket_ai
 
     ticket = await Ticket.get(ticket_id)
     if not ticket:
@@ -81,7 +81,6 @@ async def process_ticket_ai(ticket_id: str, title: str, description: str):
                         "messaging",
                         channel_id,
                         {
-                            "created_by_id": patient_id,
                             "members": [patient_id, doctor_id],
                             "name": f"Ticket: {ticket.title}"
                         }
@@ -108,9 +107,17 @@ async def get_tickets(request: Request, user = Depends(require_user)):
         return RedirectResponse("/auth/login")
     
     if user.role == "patient":
-        return templates.TemplateResponse("dashboard.html", {"request": request, "user": user})
+        tickets = await Ticket.find(Ticket.created_by == user.id).sort("-created_at").to_list()
+        return templates.TemplateResponse("dashboard.html", {"request": request, "user": user, "tickets": tickets})
     else:
-        return templates.TemplateResponse("dashboard_doctor.html", {"request": request, "user": user})
+        tickets = await Ticket.find(Ticket.assigned_to == user.id).sort("-created_at").to_list()
+        
+        # Helper map for patient emails
+        patient_ids = [t.created_by for t in tickets]
+        patients = await Patient.find({"_id": {"$in": patient_ids}}).to_list()
+        patient_map = {p.id: p.email for p in patients}
+
+        return templates.TemplateResponse("dashboard_doctor.html", {"request": request, "user": user, "tickets": tickets, "patient_map": patient_map})
 
 
 

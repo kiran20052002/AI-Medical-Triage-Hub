@@ -45,16 +45,6 @@
           }
         }
       </script>
-
-      <!-- Chat Button -->
-      {% if ticket.channel_id %}
-      <a
-        href="/chat?channel_id={{ ticket.channel_id }}"
-        class="btn btn-secondary text-white"
-      >
-        💬 Chat with {% if user.role == 'patient' %}Doctor{% else %}Patient{%
-        endif %}
-      </a>
       {% endif %}
     </div>
   </div>

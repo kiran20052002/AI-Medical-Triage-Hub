@@ -117,14 +117,7 @@ Hub{% endblock %} {% block content %}
               <div class="prose max-w-none">
                 <h4>Plan</h4>
                 <p>{{ report.content.plan }}</p>
-                <div class="mt-4 flex justify-end">
-                  <button
-                    class="btn btn-sm btn-outline btn-accent"
-                    onclick="regenerateEmbedding('{{ report.id }}')"
-                  >
-                    🧠 Re-generate Embedding
-                  </button>
-                </div>
+                <div class="mt-4 flex justify-end"></div>
               </div>
             </div>
           </div>
@@ -180,12 +173,6 @@ Hub{% endblock %} {% block content %}
         row.style.display = "none";
       }
     });
-  }
-
-  async function regenerateEmbedding(reportId) {
-    // Placeholder call
-    alert("Embedding generation triggered for " + reportId);
-    // fetch('/api/reports/embed', ...)
   }
 </script>
 {% endblock %}

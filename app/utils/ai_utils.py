@@ -69,7 +69,7 @@ async def analyze_ticket_ai(title: str, description: str):
     chain = prompt | llm | parser
 
     try:
-        result = await chain.invoke({"title": title, "description": description})
+        result = await chain.ainvoke({"title": title, "description": description})
         return result
     except Exception as e:
         print(f"AI Analysis Failed: {e}")
