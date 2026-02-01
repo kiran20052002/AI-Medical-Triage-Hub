@@ -13,12 +13,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-from app.routers import auth, admin, tickets, chat
+from app.routers import auth, admin, tickets, chat, chatbot
 
 app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(tickets.router)
 app.include_router(chat.router)
+app.include_router(chatbot.router)
 
 @app.get('/')
 async def home(request: Request):
