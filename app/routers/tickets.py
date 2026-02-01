@@ -196,21 +196,10 @@ async def analyze_closure(id: str, background_tasks: BackgroundTasks, user = Dep
             if analysis and analysis.get("recommendedStatus") == "In Progress":
                 reason = analysis.get("reasoning", "AI suggests further discussion.")
                 print(f"Smart Close Blocked: {reason}")
-
-                # We can't easily show a flash message with RedirectResponse in standard FastAPI 
-                # without SessionMiddleware/Cookies logic setup.
-                # So we will update the helpful notes with the specific blocking reason.
-                note = f"Smart Close Aborted by AI.\nReason: {reason}"
-                if ticket.helpful_notes:
-                    ticket.helpful_notes += f"\n\n{note}"
-                else:
-                    ticket.helpful_notes = note
-                await ticket.save()
-
                 return {"status": "blocked", "message": f"Smart Close Blocked: {reason}"}
 
             # If completed, collect text for summary
-            chat_history_text = "\n".join[[f"{m['user']['name']}: {m['text']}" for m in formatted_messages]]
+            chat_history_text = "\n".join([f"{m['user']['name']}: {m['text']}" for m in formatted_messages])
         
         except Exception as e:
             print(f"Warning: Failed to fetch chat history: {e}")
