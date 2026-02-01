@@ -4,7 +4,7 @@ from langchain_groq import ChatGroq
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
@@ -187,3 +187,29 @@ async def generate_triage_report(title: str, description: str, chat_histroy: str
     except Exception as e:
         print(f"Triage Report Generation Failed: {e}")
         return None
+
+
+
+async def generate_medical_response(system_prompt: str, user_query: str) -> str:
+    """
+    Generates a response for the medical chatbot using the provided system prompt and user query.
+    Used by the chatbot router.
+    """
+    
+    if not llm:
+        return "I am currently unavailable. Please try again later."
+    
+
+    messages = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=f'Patient Query: "{user_query}"')
+
+    ]
+
+    try:
+        response = await llm.ainvoke(messages)
+        return response.content
+    
+    except Exception as e:
+        print(f"Medical Response Generation Failed: {e}")
+        return "I am currently unavailable. Please try again later."
