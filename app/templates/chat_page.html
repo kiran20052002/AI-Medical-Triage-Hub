@@ -5,7 +5,6 @@
 
   <!-- Main Chat Area -->
   <div class="drawer-content flex flex-col h-full bg-base-100 relative">
-    <!-- Mobile toggle -->
     <div class="lg:hidden p-2 border-b">
       <label for="chat-drawer" class="btn btn-sm btn-ghost drawer-button">
         <svg
@@ -69,7 +68,6 @@
         Chats
       </div>
       <div id="channel-list" class="overflow-y-auto">
-        <!-- Channels injected here -->
         <div class="flex justify-center p-4">
           <span class="loading loading-spinner"></span>
         </div>
@@ -78,7 +76,6 @@
   </div>
 </div>
 
-<!-- Stream Chat SDK -->
 <script src="https://cdn.jsdelivr.net/npm/stream-chat/dist/browser.full-bundle.min.js"></script>
 <script>
   let chatClient;
@@ -87,12 +84,11 @@
 
   async function initChat() {
     const apiKey = "{{ stream_api_key }}";
-    // Get token
+
     try {
       const res = await fetch("/chat/token");
       const data = await res.json();
 
-      // For browser bundle, it is usually exposed as StreamChat
       chatClient = new StreamChat(apiKey);
       await chatClient.connectUser(
         {
@@ -102,7 +98,6 @@
         data.token,
       );
 
-      // Fetch Channels
       const filter = { type: "messaging", members: { $in: [data.userId] } };
       const sort = { last_message_at: -1 };
       const channels = await chatClient.queryChannels(filter, sort, {
@@ -117,8 +112,6 @@
         if (activeChannel && event.channel_id === activeChannel.id) {
           appendMessage(event.message);
         }
-        // Refresh list to update unread/last message
-        // In a real app we'd update DOM efficiently
       });
     } catch (e) {
       console.error("Chat Init Error", e);

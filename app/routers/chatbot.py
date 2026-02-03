@@ -1,67 +1,77 @@
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, HTTPException, status
 from app.utils.ai_utils import generate_embedding, generate_medical_response
 from app.models import Report
 
-
 router = APIRouter(prefix="/chatbot", tags=["Chatbot"])
-
 
 @router.post("/query")
 async def chat_query(payload: dict = Body(...)):
     query = payload.get("query")
     if not query:
-        return {"error": "Query is required"}
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Query is required"
+        )
+    
+    # Initialize hurdles list to capture errors
+    hurdles = []
     
     # 1. Generate Embedding
-    embedding = await generate_embedding(query)
-
+    try:
+        embedding = await generate_embedding(query)
+    except Exception as e:
+        hurdles.append(f"Embedding Generation Failed: {str(e)}")
+        embedding = None
+    
     similarity_score = 0
     top_match = None
 
     if embedding:
-        # 2. Search for similar reports
-        pipeline = [
-            {
-                "$vectorSearch": {
-                    "index": "vector_index",
-                    "path": "embedding",
-                    "queryVector": embedding,
-                    "numCandidates": 10,
-                    "limit": 1
+        try:
+            # 2. Search for similar reports
+            pipeline = [
+                {
+                    "$vectorSearch": {
+                        "index": "vector_index",
+                        "path": "embedding",
+                        "queryVector": embedding,
+                        "numCandidates": 10,
+                        "limit": 1  # Get top 1 most relevant 
+                    }
+                },
+                {
+                    "$project": {
+                        "_id": 1,
+                        "ticketId": 1, 
+                        "content.plan": 1,
+                        "content.assessment": 1,
+                        "score": { "$meta": "vectorSearchScore" }
+                    }
                 }
-            },
-            {
-                "$project": {
-                    "_id": 1,
-                    "ticketId": 1,
-                    "content.plan": 1,
-                    "content.assessment": 1,
-                    "score": { "$meta": "vectorSearchScore" }
-                }
-            }
-        ]
+            ]
+            
+            collection = Report.get_pymongo_collection()
+            cursor = collection.aggregate(pipeline)
+            results = await cursor.to_list(length=1)
+            
+            if results:
+                top_match = results[0]
+                similarity_score = top_match.get("score", 0)
+        except Exception as e:
+            hurdles.append(f"Vector Search Failed: {str(e)}")
 
-        collection = Report.get_pymango_collection()
-        cursor = collection.aggregate(pipeline)
-        results = await cursor.to_list(length=1)
-
-        if results:
-            top_match = results[0]
-            similarity_score = top_match.get("score", 0)
-    
-    # 3. Decide response based on similarity score (Threshhold 0.80)
-    if top_match and similarity_score >= 0.80:
-
+    # 3. Decide response based on similarity score (Threshold 0.80)
+    if top_match and similarity_score >= 0.8:
 
         assessment = top_match.get("content", {}).get("assessment", "N/A")
         plan = top_match.get("content", {}).get("plan", "N/A")
-        ticket_id = top_match.get("ticketId", "Unknown")
-
+        ticket_id = top_match.get("ticketId", "Unknown") 
+        
         context = f"""
-        Diagnosis: {assessment}
-        Plan/Treatment: {plan}
+          Diagnosis: {assessment}
+          Plan/Treatment: {plan}
         """
-
+        
         system_prompt = f"""You are a helpful and empathetic medical assistant chatbot.
       
       PRIMARY DIRECTIVE:
@@ -81,23 +91,31 @@ async def chat_query(payload: dict = Body(...)):
       Context from similar past cases:
       {context}
       """
-
+        
         try:
             bot_response = await generate_medical_response(system_prompt, query)
-
-            refusl_prefix = "I am a medical assistant. I can only assist with health-related inquiries."
-
-            if bot_response.strip().startswith(refusl_prefix):
+            
+            refusal_prefix = "I am a medical assistant. I can only assist with health-related inquiries."
+            
+            if bot_response.strip().startswith(refusal_prefix):
                 final_response = bot_response
-        
             else:
-                final_response = f"{bot_response}\n\n(Reference Ticket: {ticket_id})"
-        
-            return {"response": final_response, "type": "answer"}
-        
+                final_response = f"{bot_response}\n\n(Reference Ticket ID: {ticket_id})"
+
+            return {
+                "response": final_response, 
+                "type": "answer",
+                "hurdles": hurdles
+            }
+            
         except Exception as e:
-            return {"response": f"Error generating response: {str(e)}", "type": "error"}
-    
-    else:
-        return {"response": "I'm sorry, I don't have enough information to answer that. Please create a support ticket so a doctor can assist you.", "type": "suggest"}
-    
+            print(f"Chatbot AI Error: {e}")
+            hurdles.append(f"Response Generation Failed: {str(e)}")
+            # Fall through to default response
+
+    # Fallback response (Low confidence, no match, or error occurred)
+    return {
+        "response": "I'm sorry, I cannot find a specific solution for that in our records. I recommend creating a ticket so a specialist can assist you.",
+        "type": "suggestion",
+        "hurdles": hurdles
+    }

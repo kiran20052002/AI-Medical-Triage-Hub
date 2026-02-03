@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Form, BackgroundTasks
-from fast.responses import RedirectResponse
+from fastapi.responses import RedirectResponse
 from app.dependencies import require_user
 from app.models import Ticket, Report
 from app.utils.ai_utils import generate_embedding

@@ -4,9 +4,7 @@ from beanie import Document, Link, PydanticObjectId
 from pydantic import BaseModel, EmailStr, Field
 from pydantic.alias_generators import to_camel
 
-
 class BaseConfig(BaseModel):
-
     class Config:
         alias_generator = to_camel
         populate_by_name = True
@@ -15,23 +13,31 @@ class BaseConfig(BaseModel):
 class Patient(Document):
     email: EmailStr
     password: str
-    role: str = 'patient'
+    role: str = "patient"
+    skills: List[str] = []
     created_at: datetime = Field(default_factory=datetime.now)
 
     class Settings(BaseConfig.Config):
         name = "patients"
 
-
 class Doctor(Document):
     email: EmailStr
     password: str
-    role: str = 'doctor'
+    role: str = "doctor"
     specialist: List[str] = []
     created_at: datetime = Field(default_factory=datetime.now)
 
     class Settings(BaseConfig.Config):
         name = "doctors"
 
+class Report(Document):
+    content: dict
+    formatted_report: Optional[str] = Field(default=None, alias="formattedReport")
+    embedding: List[float]
+    created_at: datetime = Field(default_factory=datetime.now)
+
+    class Settings(BaseConfig.Config):
+        name = "reports"
 
 class Ticket(Document):
     title: str
@@ -49,14 +55,3 @@ class Ticket(Document):
 
     class Settings(BaseConfig.Config):
         name = "tickets"
-
-class Report(Document):
-    content: dict
-    formatted_report: Optional[str] = Field(default=None, alias="formattedReport")
-    embedding: List[float]
-    created_at: datetime = Field(default_factory=datetime.now)
-
-    class Settings(BaseConfig.Config):
-        name = "reports"
-    
-    
