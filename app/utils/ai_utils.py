@@ -45,6 +45,11 @@ class ChatAnalysis(BaseModel):
     confidence: float = Field(description="Confidence score between 0 and 100.")
     reasoning: str = Field(description="Brief explanation for the recommendation.")
 
+class QueryClassification(BaseModel):
+    is_valid: bool = Field(description="True if the query describes a reasonably valid medical situation, symptom, or question. False if it is gibberish (e.g., 'abcd'), completely unrelated to health, or too short to be meaningful.")
+    reason: str = Field(description="Brief explanation of the classification.")
+
+
 
 async def analyze_ticket_ai(title: str, description: str):
     if not llm:
@@ -108,6 +113,38 @@ async def analyze_ticket_chat_ai(messages: List[Dict]):
             "confidence": 0,
             "reasoning": "AI analysis failed."
         }
+
+async def classify_medical_query(query: str) -> Optional[dict]:
+    """
+    Classifies a user query to see if it is a valid medical inquiry or gibberish/spam.
+    """
+    if not llm:
+        return {"is_valid": True, "reason": "No LLM configured."}
+        
+    parser = JsonOutputParser(pydantic_object=QueryClassification)
+    
+    prompt = PromptTemplate(
+        template="""You are a triage screening agent. Analyze the following user message:
+        "{query}"
+        
+        Determine if this is a valid medical concern. 
+        - Valid means it describes a symptom, medical question, pain, or health issue (even if brief, like "headache").
+        - Invalid means it is gibberish (e.g., "abcd", "asdf"), random characters, pure spam, or a completely non-health question (e.g., "how to code").
+        
+        {format_instructions}
+        """,
+        input_variables=["query"],
+        partial_variables={"format_instructions": parser.get_format_instructions()},
+    )
+    
+    chain = prompt | llm | parser
+    
+    try:
+        result = await chain.ainvoke({"query": query})
+        return result
+    except Exception as e:
+        print(f"Query Classification Failed: {e}")
+        return {"is_valid": True, "reason": "Classification failed, allowing query."}
 
 async def generate_embedding(text: str) -> List[float]:
     if not client:

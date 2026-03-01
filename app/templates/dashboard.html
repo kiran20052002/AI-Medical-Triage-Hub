@@ -19,6 +19,15 @@ endblock %} {% block content %}
       >
     </div>
 
+    {% if request.query_params.get("error") == "invalid_ticket" %}
+    <div class="alert alert-error shadow-lg mb-6" id="error-alert">
+      <span>Your ticket was not created because the description provided was unclear or not health-related. Please describe your medical issue clearly.</span>
+      <div class="flex-none">
+        <button class="btn btn-sm btn-ghost btn-circle" onclick="document.getElementById('error-alert').remove(); window.history.replaceState({}, document.title, window.location.pathname);">✕</button>
+      </div>
+    </div>
+    {% endif %}
+
     <div class="grid gap-4">
       {% for ticket in tickets %}
       <div class="card bg-base-100 shadow-xl">

@@ -5,7 +5,7 @@ An intelligent healthcare support platform that streamlines patient-doctor inter
 ## Features
 
 - **AI Triage & Analysis**: Automatically analyzes patient tickets to estimate urgency and suggest relevant specialists.
-- **Clinical Triage Reports**: Generates professional summaries for doctors/admins after a conversation ends, replacing traditional SOAP notes with a chat-optimized format:
+- **Clinical Triage Reports**: Generates professional summaries for admins after a conversation ends
   - **Chief Complaint**: The primary issue.
   - **Symptoms & Observations**: Patient-reported symptoms.
   - **Assessment**: AI-generated analysis of the situation.
