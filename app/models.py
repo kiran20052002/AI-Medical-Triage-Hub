@@ -14,7 +14,6 @@ class Patient(Document):
     email: EmailStr
     password: str
     role: str = "patient"
-    skills: List[str] = []
     created_at: datetime = Field(default_factory=datetime.now)
 
     class Settings(BaseConfig.Config):
@@ -47,6 +46,7 @@ class Ticket(Document):
     assigned_to: Optional[PydanticObjectId] = Field(default=None, alias="assignedTo")
     priority: Optional[str] = None
     channel_id: Optional[str] = Field(default=None, alias="channelId")
+    connection_status: Optional[str] = Field(default=None, alias="connectionStatus")
     deadline: Optional[datetime] = None
     helpful_notes: Optional[str] = Field(default=None, alias="helpfulNotes")
     suggested_solution: Optional[str] = Field(default=None, alias="suggestedSolution")

@@ -81,6 +81,44 @@
         {% endif %}
       </div>
 
+      <!-- Connection Flow -->
+      <div class="col-span-full border-t pt-4">
+        {% if ticket.assigned_to %} {% if ticket.connection_status == 'accepted'
+        %}
+        <div class="flex items-center gap-4">
+          <span class="badge badge-success">Connection Accepted</span>
+          <a href="/chat" class="btn btn-sm btn-outline">Go to Chat</a>
+        </div>
+        {% elif ticket.connection_status == 'requested' %} {% if user.role !=
+        'patient' and ticket.assigned_to == user.id %}
+        <form action="/tickets/{{ ticket.id }}/accept-connection" method="POST">
+          <button type="submit" class="btn btn-success btn-sm">
+            Accept Connection
+          </button>
+        </form>
+        {% else %}
+        <span class="badge badge-warning">Pending connection acceptance</span>
+        {% endif %} {% else %} {% if user.role == 'patient' and
+        ticket.created_by == user.id %}
+        <form
+          action="/tickets/{{ ticket.id }}/request-connection"
+          method="POST"
+        >
+          <button type="submit" class="btn btn-primary btn-sm">
+            Request Connection
+          </button>
+        </form>
+        {% else %}
+        <span class="text-sm text-gray-500 italic"
+          >Awaiting connection request...</span
+        >
+        {% endif %} {% endif %} {% else %}
+        <span class="text-sm text-gray-500 italic"
+          >No doctor assigned yet. AI is analyzing...</span
+        >
+        {% endif %}
+      </div>
+
       <div class="col-span-full">
         <p class="text-sm text-gray-500 mt-2">
           Created At: {{ ticket.created_at.strftime('%Y-%m-%d %H:%M:%S') }}

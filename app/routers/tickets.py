@@ -45,55 +45,6 @@ async def process_ticket_ai(ticket_id: str, title: str, description: str):
                 ticket.assigned_to = doctor.id
                 ticket.status = "In Progress"
 
-
-                # Create Chat Channel
-                try:
-                    from stream_chat import StreamChat
-                    import os
-
-                    api_key = os.getenv("STREAM_API_KEY")
-                    api_secret = os.getenv("STREAM_API_SECRET")
-                    task_client = StreamChat(api_key=api_key, api_secret=api_secret)
-
-                    patient = await Patient.get(ticket.created_by)
-
-                    patient_id = str(ticket.created_by)
-                    doctor_id = str(doctor.id)
-
-                    patient_name = patient.email if patient else "Unknown Patient"
-                    doctor_name = doctor.email if doctor else "Unknown Doctor"
-
-                    task_client.upsert_user(
-                        {
-                            "id": patient_id,
-                            "role": "user",
-                            "name": patient_name
-                        }
-                    )
-                    task_client.upsert_user({
-                        "id": doctor_id,
-                        "role": "user",
-                        "name": doctor_name
-                    })
-
-                    channel_id = f"ticket-{ticket.id}"
-                    channel = task_client.channel(
-                        "messaging",
-                        channel_id,
-                        {
-                            "members": [patient_id, doctor_id],
-                            "name": f"Ticket: {ticket.title}"
-                        }
-                    )
-
-                    channel.create(patient_id)
-                    ticket.channel_id = channel_id
-                    print(f"Chat Channel Created: {channel_id}")
-
-                except Exception as e:
-                    print(f"Error creating chat channel: {e}")
-
-
                 print(f"Auto-Assigned Ticket to Dr. {doctor.email}")
             else:
                 print(f"No matching specialist found for: {required_specialists}")  
@@ -228,6 +179,70 @@ async def analyze_closure(id: str, background_tasks: BackgroundTasks, user = Dep
     await ticket.save()
 
     return {"status": "closed", "message": "Ticket Closed Successfully. AI Summary added."}
+
+
+@router.post("/{id}/request-connection")
+async def request_connection(id: str, user = Depends(require_user)):
+    ticket = await Ticket.get(id)
+    if not ticket or ticket.created_by != user.id:
+        return RedirectResponse(f"/tickets/{id}", status_code=303)
+    
+    if ticket.assigned_to and not ticket.connection_status:
+        ticket.connection_status = "requested"
+        await ticket.save()
+    
+    return RedirectResponse(f"/tickets/{id}", status_code=303)
+
+
+@router.post("/{id}/accept-connection")
+async def accept_connection(id: str, user = Depends(require_user)):
+    ticket = await Ticket.get(id)
+    if not ticket or ticket.assigned_to != user.id:
+        return RedirectResponse(f"/tickets/{id}", status_code=303)
+    
+    if ticket.connection_status == "requested":
+        # Create Chat Channel
+        try:
+            patient = await Patient.get(ticket.created_by)
+            doctor = await Doctor.get(ticket.assigned_to)
+
+            patient_id = str(ticket.created_by)
+            doctor_id = str(ticket.assigned_to)
+
+            patient_name = patient.email if patient else "Unknown Patient"
+            doctor_name = doctor.email if doctor else "Unknown Doctor"
+
+            server_client.upsert_user({
+                "id": patient_id,
+                "role": "user",
+                "name": patient_name
+            })
+            server_client.upsert_user({
+                "id": doctor_id,
+                "role": "user",
+                "name": doctor_name
+            })
+
+            channel_id = f"ticket-{ticket.id}"
+            channel = server_client.channel(
+                "messaging",
+                channel_id,
+                {
+                    "members": [patient_id, doctor_id],
+                    "name": f"Ticket: {ticket.title}"
+                }
+            )
+
+            channel.create(patient_id)
+            ticket.channel_id = channel_id
+            ticket.connection_status = "accepted"
+            print(f"Chat Channel Created: {channel_id}")
+            await ticket.save()
+
+        except Exception as e:
+            print(f"Error creating chat channel on acceptance: {e}")
+    
+    return RedirectResponse(f"/tickets/{id}", status_code=303)
 
 
 
