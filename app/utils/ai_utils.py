@@ -151,7 +151,7 @@ async def generate_embedding(text: str) -> List[float]:
         raise Exception("Google GenAI Client is not initialized (missing API key or library).")
     
     result = client.models.embed_content(
-        model="models/text-embedding-004",
+        model="gemini-embedding-001",
         contents=text
     )
     return result.embeddings[0].values
