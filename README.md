@@ -12,6 +12,10 @@ An intelligent healthcare support platform that streamlines patient-doctor inter
   - **Recommended Plan**: Suggested next steps (ER, GP, Home Care).
 - **Real-time Chat**: Integrated messaging between patients and doctors using StreamChat.
 - **Smart Routing**: Directs tickets to the appropriate personnel based on AI analysis.
+- **AI Guard ML Pipeline**: A 3-stage local machine learning pipeline that sanitizes all incoming user queries before processing.
+  - **Spam Detection**: Blocks marketing and repetitive spam.
+  - **Gibberish Detection**: Filters out random characters and meaningless text.
+  - **Medical Classification**: Ensures queries are health-related before reaching the LLM.
 - **Vector Search**: Embeds medical reports for similarity search
 
 ## User Roles & Capabilities
@@ -41,6 +45,7 @@ An intelligent healthcare support platform that streamlines patient-doctor inter
 - **Backend**: FastAPI (Python)
 - **Database**: MongoDB (Beanie ODM)
 - **AI/LLM**: Groq (Llama 3), Google Gemini (Embeddings)
+- **Local ML/NLP**: Scikit-Learn (MultinomialNB, RandomForest), NLTK (PorterStemmer, Stopwords)
 - **Real-time**: StreamChat
 - **Auth**: JWT (Stateless)
 

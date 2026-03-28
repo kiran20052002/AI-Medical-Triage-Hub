@@ -81,10 +81,10 @@ async def create_ticket(
     description: str = Form(...),
     user = Depends(require_user)
 ):
-    from app.utils.ai_utils import classify_medical_query
+    from app.utils.ml_utils import verify_medical_query
     
     # 0. Validate Query Type (Gibberish / Non-Medical)
-    validation = await classify_medical_query(f"Title: {title}\nDescription: {description}")
+    validation = await verify_medical_query(f"Title: {title}\nDescription: {description}")
     if validation and not validation.get("is_valid", True):
         # We redirect back with an error parameter (simplest approach for now)
         return RedirectResponse("/tickets?error=invalid_ticket", status_code=303)

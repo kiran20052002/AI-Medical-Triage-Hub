@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Body, HTTPException, status
-from app.utils.ai_utils import generate_embedding, generate_medical_response, classify_medical_query
+from app.utils.ai_utils import generate_embedding, generate_medical_response
+from app.utils.ml_utils import verify_medical_query
 from app.models import Report
 
 router = APIRouter(prefix="/chatbot", tags=["Chatbot"])
@@ -17,7 +18,7 @@ async def chat_query(payload: dict = Body(...)):
     hurdles = []
     
     # 0. Validate Query Type (Gibberish / Non-Medical)
-    validation = await classify_medical_query(query)
+    validation = await verify_medical_query(query)
     if validation and not validation.get("is_valid"):
         return {
             "response": "I'm sorry, that doesn't look like a valid health inquiry. I can only assist with medical topics. Please provide a clear description of your symptoms.",
