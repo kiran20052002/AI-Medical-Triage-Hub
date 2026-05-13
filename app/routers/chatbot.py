@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Body, HTTPException, status
 from app.utils.ai_utils import generate_embedding, generate_medical_response
 from app.utils.ml_utils import verify_medical_query
+from app.utils.agent import agent_executor
 from app.models import Report
 
 router = APIRouter(prefix="/chatbot", tags=["Chatbot"])
@@ -26,108 +27,38 @@ async def chat_query(payload: dict = Body(...)):
             "hurdles": hurdles
         }
     
-    # 1. Generate Embedding
+    # 1. Execute Agentic RAG Graph
     try:
-        embedding = await generate_embedding(query)
+        # Initial state for the agent
+        initial_state = {
+            "query": query,
+            "documents": "",
+            "retry_count": 0,
+            "response": "",
+            "mode": ""
+        }
+        
+        # Run the agentic workflow
+        result = await agent_executor.ainvoke(initial_state)
+        
+        final_response = result.get("response", "I'm sorry, I encountered an issue processing your request.")
+        
+        # Determine the response type for the frontend
+        resp_type = "answer" if "Ticket ID" in final_response or "Assessment" in final_response else "suggestion"
+        if "⚠️ EMERGENCY" in final_response:
+            resp_type = "emergency"
+
+        return {
+            "response": final_response, 
+            "type": resp_type,
+            "hurdles": hurdles
+        }
+        
     except Exception as e:
-        hurdles.append(f"Embedding Generation Failed: {str(e)}")
-        embedding = None
-    
-    similarity_score = 0
-    top_match = None
-
-    if embedding:
-        try:
-            # 2. Search for similar reports
-            pipeline = [
-                {
-                    "$vectorSearch": {
-                        "index": "vector_index",
-                        "path": "embedding",
-                        "queryVector": embedding,
-                        "numCandidates": 10,
-                        "limit": 1  # Get top 1 most relevant 
-                    }
-                },
-                {
-                    "$project": {
-                        "_id": 1,
-                        "ticketId": 1, 
-                        "content.plan": 1,
-                        "content.assessment": 1,
-                        "score": { "$meta": "vectorSearchScore" }
-                    }
-                }
-            ]
-            
-            collection = Report.get_pymongo_collection()
-            cursor = collection.aggregate(pipeline)
-            results = await cursor.to_list(length=1)
-            
-            if results:
-                top_match = results[0]
-                similarity_score = top_match.get("score", 0)
-
-        except Exception as e:
-            print(f"Vector Search Error: {e}")
-            hurdles.append(f"Vector Search Failed: {str(e)}")
-
-    # 3. Decide response based on similarity score (Threshold 0.80)
-    if top_match and similarity_score >= 0.8:
-
-        assessment = top_match.get("content", {}).get("assessment", "N/A")
-        plan = top_match.get("content", {}).get("plan", "N/A")
-        ticket_id = top_match.get("ticketId", "Unknown") 
-        
-        context = f"""
-          Diagnosis: {assessment}
-          Plan/Treatment: {plan}
-        """
-        
-        system_prompt = f"""You are a helpful and empathetic medical assistant chatbot.
-      
-      PRIMARY DIRECTIVE:
-      You are strictly limited to medical and health-related topics.
-      - If the user asks about general knowledge, coding, history, or anything NON-MEDICAL (e.g., "who is the father of computer?", "solve 2+2"), you MUST reply: "I am a medical assistant. I can only assist with health-related inquiries."
-      - Do NOT try to answer non-medical questions, even if you know the answer.
-
-      RAG INSTRUCTIONS:
-      Your goal is to answer patient questions based ONLY on the provided Context (which comes from similar past resolved tickets).
-      
-      Rules:
-      1. If the Context contains relevant medical advice or a solution, rephrase it in a friendly, helpful way for the patient.
-      2. If the Context DOES NOT contain a relevant answer, strictly reply: "I'm sorry, I don't have enough information to answer that. Please create a support ticket so a doctor can assist you."
-      3. Do not make up medical advice. Use only the provided context.
-      4. EXCLUDE phrases that imply you are the doctor waiting for a follow-up (e.g., "report back to us", "we will check on you"). The user is chatting with an AI, not the original doctor.
-      
-      Context from similar past cases:
-      {context}
-      """
-        
-        try:
-            bot_response = await generate_medical_response(system_prompt, query)
-            
-            refusal_prefix = "I am a medical assistant. I can only assist with health-related inquiries."
-            
-            if bot_response.strip().startswith(refusal_prefix):
-                final_response = bot_response
-            else:
-                final_response = f"{bot_response}\n\n(Reference Ticket ID: {ticket_id})"
-
-            return {
-                "response": final_response, 
-                "type": "answer",
-                "hurdles": hurdles
-            }
-            
-        except Exception as e:
-            print(f"Chatbot AI Error: {e}")
-            hurdles.append(f"Response Generation Failed: {str(e)}")
-            # Fall through to default response
-
-    # Fallback response (Low confidence, no match, or error occurred)
-    return {
-        "response": "I'm sorry, I cannot find a specific solution for that in our records. I recommend creating a ticket so a specialist can assist you.",
-        "type": "suggestion",
-        "hurdles": hurdles
-    }
+        print(f"Agentic Chatbot Error: {e}")
+        hurdles.append(f"Agent Execution Failed: {str(e)}")
+        return {
+            "response": "I'm sorry, I am having trouble connecting to my medical knowledge base right now. Please try again later or create a support ticket.",
+            "type": "suggestion",
+            "hurdles": hurdles
+        }

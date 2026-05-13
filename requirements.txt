@@ -17,3 +17,5 @@ google-genai
 joblib
 scikit-learn==1.6.1
 nltk
+langgraph
+langchain-mongodb
