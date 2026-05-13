@@ -16,7 +16,16 @@ async def get_current_user(request: Request):
         user_id = payload.get("id")
         role = payload.get("role")
         
-        if role == "patient" or role == "admin": 
+        if role == "admin":
+            # Admin is not in DB, return a mock user object
+            class AdminUser:
+                def __init__(self, email, role, id):
+                    self.email = email
+                    self.role = role
+                    self.id = id
+            return AdminUser(email=payload.get("sub"), role="admin", id=user_id)
+
+        if role == "patient": 
             user = await Patient.get(user_id)
         elif role == "doctor":
             user = await Doctor.get(user_id)

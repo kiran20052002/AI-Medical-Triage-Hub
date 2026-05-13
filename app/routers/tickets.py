@@ -26,25 +26,29 @@ async def process_ticket_ai(ticket_id: str, title: str, description: str):
     if not ticket:
         return
     
-    # Analyze Ticket using AI
-    analysis = await analyze_ticket_ai(title, description)
+    # Fetch available specialists from DB to help AI choose
+    doctors = await Doctor.find_all().to_list()
+    available_specialists = []
+    for d in doctors:
+        available_specialists.extend(d.specialist)
+    available_specialists = list(set(available_specialists)) # unique list
+
+    # Analyze Ticket using AI, providing context about available doctors
+    analysis = await analyze_ticket_ai(title, description, available_specialists=available_specialists)
 
     if analysis:
         ticket.helpful_notes = analysis.get("helpfulNotes")
         ticket.priority = analysis.get("priority")
         ticket.specialist = analysis.get("specialist")
-        if analysis.get("summary"):
-            pass
-
-        required_specialists = analysis.get("specialist",[])
+        
+        required_specialists = analysis.get("specialist", [])
         if required_specialists:
-
+            # Try to find a doctor that matches the AI's selection
             doctor = await Doctor.find_one({"specialist": {"$in": required_specialists}})
 
             if doctor:
                 ticket.assigned_to = doctor.id
                 ticket.status = "In Progress"
-
                 print(f"Auto-Assigned Ticket to Dr. {doctor.email}")
             else:
                 print(f"No matching specialist found for: {required_specialists}")  

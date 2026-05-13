@@ -9,6 +9,7 @@ from beanie import PydanticObjectId
 from datetime import timedelta
 
 
+
 router = APIRouter(prefix="/auth", tags=["Auth"])
 templates = Jinja2Templates(directory="app/templates")
 

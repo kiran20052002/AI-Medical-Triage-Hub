@@ -67,7 +67,9 @@ async def chat_query(payload: dict = Body(...)):
             if results:
                 top_match = results[0]
                 similarity_score = top_match.get("score", 0)
+
         except Exception as e:
+            print(f"Vector Search Error: {e}")
             hurdles.append(f"Vector Search Failed: {str(e)}")
 
     # 3. Decide response based on similarity score (Threshold 0.80)

@@ -30,9 +30,10 @@ class Doctor(Document):
         name = "doctors"
 
 class Report(Document):
+    ticket_id: PydanticObjectId = Field(alias="ticketId")
     content: dict
     formatted_report: Optional[str] = Field(default=None, alias="formattedReport")
-    embedding: List[float]
+    embedding: List[float] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.now)
 
     class Settings(BaseConfig.Config):
