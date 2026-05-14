@@ -14,7 +14,9 @@ class AgentState(TypedDict):
     documents: str
     retry_count: int
     response: str
-    mode: str # 'emergency', 'clarify', 'search', 'generate'
+    mode: str # 'emergency', 'clarify', 'search', 'generate', 'transform', 'fallback'
+    hallucination_score: str # 'yes' or 'no'
+    answer_score: str # 'yes' or 'no'
 
 # 2. Pydantic models for structured output
 class RouteQuery(BaseModel):
@@ -26,6 +28,14 @@ class RouteQuery(BaseModel):
 class GradeDocuments(BaseModel):
     """Binary score for relevance check on retrieved documents."""
     binary_score: str = Field(description="Documents are relevant to the question, 'yes' or 'no'")
+
+class GradeHallucinations(BaseModel):
+    """Binary score for hallucination check on generated answer."""
+    binary_score: str = Field(description="Answer is grounded in the facts, 'yes' or 'no'")
+
+class GradeAnswer(BaseModel):
+    """Binary score to assess if answer addresses question."""
+    binary_score: str = Field(description="Answer addresses the question, 'yes' or 'no'")
 
 # 3. Nodes
 async def router_node(state: AgentState):
@@ -131,6 +141,48 @@ async def fallback_node(state: AgentState):
     response = "I've searched our medical records and couldn't find a case similar to your description. I recommend creating a support ticket so one of our specialists can review your symptoms in detail."
     return {"response": response}
 
+async def hallucination_grader_node(state: AgentState):
+    """
+    Determines whether the generation is grounded in the document and not hallucinating.
+    """
+    print("--- HALLUCINATION GRADER NODE ---")
+    docs = state["documents"]
+    generation = state["response"]
+    
+    # Shortcut: If the generator says it couldn't find anything, don't grade it as a hallucination
+    if "I couldn't find a similar case in our records" in generation:
+        return {"hallucination_score": "yes"}
+
+    system = """You are a grader assessing whether an LLM generation is grounded in / supported by a set of retrieved documents. \n 
+    Give a binary score 'yes' or 'no'. 'yes' means that the answer is grounded in / supported by the set of documents."""
+    
+    grader_llm = llm.with_structured_output(GradeHallucinations)
+    grade = await grader_llm.ainvoke([
+        SystemMessage(content=system),
+        HumanMessage(content=f"Set of documents: \n\n {docs} \n\n LLM generation: {generation}")
+    ])
+
+    return {"hallucination_score": grade.binary_score}
+
+async def answer_grader_node(state: AgentState):
+    """
+    Determines whether the generation addresses the question.
+    """
+    print("--- ANSWER GRADER NODE ---")
+    query = state["query"]
+    generation = state["response"]
+
+    system = """You are a grader assessing whether an answer addresses / resolves a user question. \n 
+    Give a binary score 'yes' or 'no'. 'yes' means that the answer resolves the question."""
+    
+    grader_llm = llm.with_structured_output(GradeAnswer)
+    grade = await grader_llm.ainvoke([
+        SystemMessage(content=system),
+        HumanMessage(content=f"User question: \n\n {query} \n\n LLM generation: {generation}")
+    ])
+
+    return {"answer_score": grade.binary_score}
+
 # 4. Graph Construction
 def create_agent_graph():
     workflow = StateGraph(AgentState)
@@ -143,6 +195,8 @@ def create_agent_graph():
     workflow.add_node("grade", grader_node)
     workflow.add_node("transform", transform_query_node)
     workflow.add_node("generate", generator_node)
+    workflow.add_node("grade_hallucination", hallucination_grader_node)
+    workflow.add_node("grade_answer", answer_grader_node)
     workflow.add_node("fallback", fallback_node)
     
     # Define Edges
@@ -181,7 +235,26 @@ def create_agent_graph():
         }
     )
     
-    workflow.add_edge("generate", END)
+    workflow.add_edge("generate", "grade_hallucination")
+    
+    workflow.add_conditional_edges(
+        "grade_hallucination",
+        lambda x: "useful" if x["hallucination_score"] == "yes" else "not useful",
+        {
+            "useful": "grade_answer",
+            "not useful": "transform"
+        }
+    )
+    
+    workflow.add_conditional_edges(
+        "grade_answer",
+        lambda x: "useful" if x["answer_score"] == "yes" else "not useful",
+        {
+            "useful": END,
+            "not useful": "transform"
+        }
+    )
+    
     workflow.add_edge("fallback", END)
     
     return workflow.compile()
