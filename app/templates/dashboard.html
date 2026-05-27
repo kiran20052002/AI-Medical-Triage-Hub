@@ -6,7 +6,7 @@ endblock %} {% block content %}
     <div class="flex items-center gap-4">
       <span class="text-sm">{{ user.email }}</span>
       <div class="badge badge-primary">Patient</div>
-      <a href="/chat/" class="btn btn-sm btn-ghost">Chats</a>
+      <a href="/chatbot/" class="btn btn-sm btn-ghost">AI Assistant</a>
       <a href="/auth/logout" class="btn btn-sm btn-ghost">Logout</a>
     </div>
   </div>
@@ -79,10 +79,6 @@ endblock %} {% block content %}
   </div>
   </div>
 </div>
-
-
-<!-- AI Chatbot Widget -->
-{% include "components/chatbot_widget.html" %}
 
 
 {% endblock %}

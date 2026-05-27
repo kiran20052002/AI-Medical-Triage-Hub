@@ -4,6 +4,8 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse
 from contextlib import asynccontextmanager
 from app.config.db import init_db
+from app.utils.agent import create_agent_graph
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from dotenv import load_dotenv
 
 
@@ -14,7 +16,13 @@ load_dotenv()
 async def lifespan(app: FastAPI):
     # Startup
     await init_db()
-    yield
+    
+    # Initialize LangGraph Checkpointer and Agent
+    async with AsyncSqliteSaver.from_conn_string("checkpoints.sqlite") as saver:
+        app.state.saver = saver
+        app.state.agent = create_agent_graph(checkpointer=saver)
+        yield
+    
     # Shutdown
 
 app = FastAPI(lifespan=lifespan)

@@ -12,6 +12,28 @@
       class="bg-gradient-to-r from-indigo-500 to-indigo-700 p-4 flex justify-between items-center text-white"
     >
       <div class="flex items-center gap-2">
+        <button
+          onclick="toggleSessions()"
+          class="hover:bg-white/20 p-1 rounded-full transition-colors -ml-1 mr-1"
+          title="Recent Sessions"
+        >
+          <!-- Hamburger (3 dashes) Icon -->
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <line x1="3" y1="12" x2="21" y2="12" />
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <line x1="3" y1="18" x2="21" y2="18" />
+          </svg>
+        </button>
         <div class="bg-white/20 p-1.5 rounded-full">
           <!-- Bot Icon -->
           <svg
@@ -37,11 +59,11 @@
       </div>
       <div class="flex items-center gap-1">
         <button
-          onclick="clearChat()"
+          onclick="startNewChat()"
           class="hover:bg-white/20 p-1 rounded-full transition-colors"
-          title="Clear History"
+          title="New Chat"
         >
-          <!-- Trash2 Icon -->
+          <!-- Plus Circle Icon -->
           <svg
             xmlns="http://www.w3.org/2000/svg"
             width="20"
@@ -53,13 +75,35 @@
             stroke-linecap="round"
             stroke-linejoin="round"
           >
-            <path d="M3 6h18" />
-            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-            <line x1="10" x2="10" y1="11" y2="17" />
-            <line x1="14" x2="14" y1="11" y2="17" />
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="16" />
+            <line x1="8" y1="12" x2="16" y2="12" />
           </svg>
         </button>
+        <a
+          href="/chatbot/"
+          class="hover:bg-white/20 p-1 rounded-full transition-colors"
+          title="Open Full Page View"
+        >
+          <!-- External Link Icon -->
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path
+              d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"
+            />
+            <polyline points="15 3 21 3 21 9" />
+            <line x1="10" y1="14" x2="21" y2="3" />
+          </svg>
+        </a>
         <button
           onclick="toggleMaximize()"
           title="Expand"
@@ -121,7 +165,26 @@
       </div>
     </div>
 
-    <!-- Input Area -->
+    <!-- Sessions Overlay -->
+    <div
+      id="sessions-overlay"
+      class="hidden absolute inset-0 bg-base-100 z-20 flex flex-col pt-16"
+    >
+      <div
+        class="px-4 py-2 border-b border-base-300 flex justify-between items-center text-sm font-bold bg-base-200"
+      >
+        <span>Recent Sessions</span>
+        <button
+          onclick="toggleSessions()"
+          class="text-xs hover:underline text-indigo-600"
+        >
+          Back
+        </button>
+      </div>
+      <div id="sessions-list" class="flex-1 overflow-y-auto p-2 space-y-1">
+        <!-- Sessions list will be populated here -->
+      </div>
+    </div>
     <div class="p-4 bg-base-100 border-t border-base-300">
       <form
         id="rag-chat-form"
@@ -202,10 +265,17 @@
 </div>
 
 <script>
+  let currentThreadId = localStorage.getItem("chatbot_thread_id");
+  if (!currentThreadId) {
+    currentThreadId = "widget-" + Math.random().toString(36).substring(2, 11);
+    localStorage.setItem("chatbot_thread_id", currentThreadId);
+  }
+
   let isMaximized = false;
   let isOpen = false;
+  let isStreaming = false;
 
-  function toggleChat() {
+  async function toggleChat() {
     const win = document.getElementById("chat-window");
     const iconOpen = document.getElementById("icon-open");
     const iconClose = document.getElementById("icon-close");
@@ -215,10 +285,98 @@
       win.classList.remove("hidden");
       iconOpen.classList.add("hidden");
       iconClose.classList.remove("hidden");
+
+      // Load history if it's the first time opening
+      if (document.getElementById("chat-messages").children.length <= 1) {
+        loadHistory();
+      }
     } else {
       win.classList.add("hidden");
       iconOpen.classList.remove("hidden");
       iconClose.classList.add("hidden");
+      // Close overlay if open when widget closed
+      document.getElementById("sessions-overlay").classList.add("hidden");
+    }
+  }
+
+  function toggleSessions() {
+    const overlay = document.getElementById("sessions-overlay");
+    overlay.classList.toggle("hidden");
+    if (!overlay.classList.contains("hidden")) {
+      loadSessions();
+    }
+  }
+
+  async function loadSessions() {
+    const list = document.getElementById("sessions-list");
+    list.innerHTML =
+      '<div class="p-4 text-center"><span class="loading loading-spinner text-indigo-600"></span></div>';
+
+    try {
+      const res = await fetch("/chatbot/threads");
+      const data = await res.json();
+      renderSessions(data.threads);
+    } catch (e) {
+      console.error("Failed to load sessions", e);
+      list.innerHTML =
+        '<div class="p-4 text-center text-xs text-red-500">Error loading sessions</div>';
+    }
+  }
+
+  function renderSessions(threads) {
+    const list = document.getElementById("sessions-list");
+    list.innerHTML = "";
+
+    if (!threads || threads.length === 0) {
+      list.innerHTML =
+        '<div class="p-4 text-center text-xs opacity-50">No recent sessions</div>';
+      return;
+    }
+
+    threads.reverse().forEach((tid) => {
+      const isActive = currentThreadId === tid;
+      const item = document.createElement("button");
+      item.className = `w-full text-left p-3 rounded-xl transition-all border mb-1 flex items-center gap-3 ${
+        isActive
+          ? "bg-indigo-600 text-white border-indigo-600 shadow-md"
+          : "hover:bg-base-200 border-transparent text-base-content opacity-80 hover:opacity-100"
+      }`;
+      item.onclick = () => switchSession(tid);
+
+      item.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${isActive ? "text-white" : "text-indigo-500"}"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            <span class="truncate font-medium text-xs">${tid}</span>
+          `;
+      list.appendChild(item);
+    });
+  }
+
+  function switchSession(tid) {
+    currentThreadId = tid;
+    localStorage.setItem("chatbot_thread_id", tid);
+    toggleSessions();
+    loadHistory();
+  }
+
+  async function loadHistory() {
+    try {
+      const res = await fetch(
+        `/chatbot/history/${encodeURIComponent(currentThreadId)}`,
+      );
+      const data = await res.json();
+      if (data.history && data.history.length > 0) {
+        const container = document.getElementById("chat-messages");
+        // Keep only the first welcome message
+        const welcome = container.firstElementChild;
+        container.innerHTML = "";
+        container.appendChild(welcome);
+
+        data.history.forEach((msg) => {
+          addBubble(msg.content, msg.role === "user" ? "user" : "bot");
+        });
+      }
+    } catch (e) {
+      console.error("Failed to load history", e);
     }
   }
 
@@ -251,67 +409,90 @@
     div.appendChild(bubble);
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
-    return div;
+    return bubble;
   }
 
-  function clearChat() {
-    if (confirm("Are you sure you want to clear the chat history?")) {
-      const container = document.getElementById("chat-messages");
-      container.innerHTML = `
+  function startNewChat() {
+    currentThreadId = "widget-" + Math.random().toString(36).substring(2, 11);
+    localStorage.setItem("chatbot_thread_id", currentThreadId);
+    const container = document.getElementById("chat-messages");
+    container.innerHTML = `
                 <div class="flex w-full justify-start">
                     <div class="max-w-[80%] p-3 rounded-2xl text-sm leading-relaxed shadow-sm whitespace-pre-wrap bg-base-100 text-base-content border border-base-300 rounded-bl-none">Hello! I am your medical assistant. How can I help you today?</div>
                 </div>
             `;
-    }
+    // Close overlay if open
+    document.getElementById("sessions-overlay").classList.add("hidden");
   }
 
   async function handleRagSubmit(e) {
     e.preventDefault();
+    if (isStreaming) return;
+
     const input = document.getElementById("rag-input");
     const text = input.value.trim();
     if (!text) return;
 
     addBubble(text, "user");
     input.value = "";
+    input.disabled = true;
 
-    // Show loading animation (3 dots bounce)
-    const container = document.getElementById("chat-messages");
-    const loadingDiv = document.createElement("div");
-    loadingDiv.id = "chat-loading";
-    loadingDiv.className = "flex w-full justify-start";
-    loadingDiv.innerHTML = `
-            <div class="bg-base-100 p-3 rounded-2xl rounded-bl-none border border-base-300">
-                <div class="flex space-x-1">
-                    <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                    <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-75"></div>
-                    <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-150"></div>
-                </div>
-            </div>`;
-    container.appendChild(loadingDiv);
-    container.scrollTop = container.scrollHeight;
+    // Create bot bubble for streaming
+    const botBubble = addBubble("", "bot");
+    isStreaming = true;
 
     try {
-      const res = await fetch("/chatbot/query", {
+      const response = await fetch("/chatbot/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: text }),
+        body: JSON.stringify({
+          query: text,
+          thread_id: currentThreadId,
+          stream: true,
+        }),
       });
-      const data = await res.json();
 
-      document.getElementById("chat-loading").remove();
+      if (!response.ok) throw new Error("Query failed");
 
-      if (data.response) {
-        addBubble(data.response, "bot");
-      } else {
-        addBubble("I'm sorry, something went wrong.", "bot");
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulatedContent = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split("\n");
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const dataStr = line.substring(6);
+            if (dataStr === "[DONE]") continue;
+
+            try {
+              const data = JSON.parse(dataStr);
+              if (data.content) {
+                accumulatedContent += data.content;
+                botBubble.textContent = accumulatedContent;
+                document.getElementById("chat-messages").scrollTop =
+                  document.getElementById("chat-messages").scrollHeight;
+              }
+            } catch (e) {
+              console.error("Error parsing SSE data:", e);
+            }
+          }
+        }
       }
     } catch (err) {
       console.error(err);
-      document.getElementById("chat-loading")?.remove();
-      addBubble(
-        "I'm having trouble connecting right now. Please try again later.",
-        "bot",
-      );
+      botBubble.textContent =
+        "I'm having trouble connecting right now. Please try again later.";
+      botBubble.classList.add("bg-red-50", "text-red-600");
+    } finally {
+      isStreaming = false;
+      input.disabled = false;
+      input.focus();
     }
   }
 </script>

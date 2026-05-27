@@ -19,3 +19,6 @@ scikit-learn==1.6.1
 nltk
 langgraph
 langchain-mongodb
+langgraph-checkpoint-sqlite
+jsonpatch
+

@@ -1,0 +1,468 @@
+{% extends "base.html" %} {% block title %}Agentic Chatbot - Medical Triage
+Hub{% endblock %} {% block head %}
+<style>
+  .chat-bubble {
+    max-width: 85%;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+</style>
+{% endblock %} {% block content %}
+<div class="drawer lg:drawer-open h-screen bg-base-200">
+  <input id="chat-sidebar-toggle" type="checkbox" class="drawer-toggle" />
+
+  <!-- Sidebar -->
+  <div class="drawer-side z-30">
+    <label for="chat-sidebar-toggle" class="drawer-overlay"></label>
+    <div class="flex flex-col h-full w-80 bg-base-100 border-r border-base-300">
+      <div
+        class="p-4 border-b border-base-300 flex items-center justify-between"
+      >
+        <h2 class="text-xl font-bold text-primary">Chat History</h2>
+        <button
+          onclick="startNewChat()"
+          class="btn btn-primary btn-sm btn-circle"
+          title="New Chat"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M5 12h14m-7-7v14" />
+          </svg>
+        </button>
+      </div>
+
+      <div id="thread-list" class="flex-1 overflow-y-auto p-2 space-y-1">
+        <!-- Threads will be loaded here -->
+        <div class="flex justify-center p-8">
+          <span class="loading loading-spinner text-primary"></span>
+        </div>
+      </div>
+
+      <div class="p-4 border-t border-base-300">
+        <a href="/tickets/" class="btn btn-outline btn-block btn-sm">
+          Back to Dashboard
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Chat Area -->
+  <div class="drawer-content flex flex-col h-full overflow-hidden">
+    <!-- Navbar for mobile -->
+    <div class="lg:hidden navbar bg-base-100 border-b border-base-300 px-4">
+      <div class="flex-none">
+        <label
+          for="chat-sidebar-toggle"
+          class="btn btn-square btn-ghost drawer-button"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            class="inline-block w-6 h-6 stroke-current"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M4 6h16M4 12h16M4 18h16"
+            ></path>
+          </svg>
+        </label>
+      </div>
+      <div class="flex-1">
+        <span class="text-lg font-semibold">Medical Assistant</span>
+      </div>
+    </div>
+
+    <!-- Chat Header -->
+    <div
+      class="hidden lg:flex items-center justify-between p-4 bg-base-100 border-b border-base-300 shadow-sm"
+    >
+      <div class="flex items-center gap-3">
+        <div class="avatar placeholder">
+          <div class="bg-primary text-primary-content rounded-full w-10">
+            <span class="text-lg">AI</span>
+          </div>
+        </div>
+        <div>
+          <h3 class="font-bold text-lg">Medical Assistant</h3>
+          <div class="flex items-center gap-1.5">
+            <div class="w-2 h-2 bg-success rounded-full"></div>
+            <span class="text-xs text-base-content/70"
+              >Online & Ready to Help</span
+            >
+          </div>
+        </div>
+      </div>
+      <div id="active-thread-info" class="text-xs text-base-content/50">
+        <!-- Thread ID will be shown here -->
+      </div>
+    </div>
+
+    <!-- Messages Area -->
+    <div
+      id="messages-container"
+      class="flex-1 overflow-y-auto p-4 lg:p-8 space-y-6 bg-base-200"
+    >
+      <div
+        id="welcome-view"
+        class="h-full flex flex-col items-center justify-center text-center max-w-md mx-auto space-y-4"
+      >
+        <div class="bg-primary/10 p-6 rounded-3xl mb-4">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="64"
+            height="64"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            class="text-primary"
+          >
+            <path d="M12 8V4H8" />
+            <rect width="16" height="12" x="4" y="8" rx="2" />
+            <path d="M2 14h2" />
+            <path d="M20 14h2" />
+            <path d="M15 13v2" />
+            <path d="M9 13v2" />
+          </svg>
+        </div>
+        <h2 class="text-3xl font-bold">Health AI Assistant</h2>
+        <p class="text-base-content/70 text-lg">
+          Welcome! I'm here to help with your medical questions and triage your
+          concerns.
+        </p>
+        <div class="grid grid-cols-1 gap-2 w-full mt-6">
+          <button
+            onclick="sendQuickQuery('What are the symptoms of common flu?')"
+            class="btn btn-outline btn-primary capitalize"
+          >
+            Symptoms of flu?
+          </button>
+          <button
+            onclick="sendQuickQuery('How to treat a minor burn at home?')"
+            class="btn btn-outline btn-primary capitalize"
+          >
+            Treating a minor burn?
+          </button>
+        </div>
+      </div>
+      <div id="chat-messages" class="space-y-6 hidden">
+        <!-- Messages will appear here -->
+      </div>
+    </div>
+
+    <!-- Input Area -->
+    <div class="p-4 bg-base-100 border-t border-base-300">
+      <form
+        id="chat-form"
+        onsubmit="handleChatSubmit(event)"
+        class="max-w-4xl mx-auto flex gap-3"
+      >
+        <input
+          type="text"
+          id="user-input"
+          placeholder="Describe your health concern..."
+          class="input input-bordered flex-1 h-12 focus:ring-2 focus:ring-primary/50 transition-all text-base"
+          autocomplete="off"
+          required
+        />
+        <button
+          type="submit"
+          id="send-btn"
+          class="btn btn-primary h-12 px-6 shadow-md hover:shadow-lg transition-all"
+        >
+          <span>Send</span>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <line x1="22" y1="2" x2="11" y2="13" />
+            <polygon points="22 2 15 22 11 13 2 9 22 2" />
+          </svg>
+        </button>
+      </form>
+      <p
+        class="text-[10px] text-center mt-2 text-base-content/40 uppercase tracking-widest font-medium"
+      >
+        AI can provide helpful info but is not a substitute for professional
+        medical advice.
+      </p>
+    </div>
+  </div>
+</div>
+
+<template id="message-template">
+  <div class="chat">
+    <div class="chat-header opacity-50 text-xs mb-1"></div>
+    <div class="chat-bubble shadow-sm text-base leading-relaxed"></div>
+    <div class="chat-footer opacity-50 text-[10px] mt-1"></div>
+  </div>
+</template>
+
+{% endblock %} {% block scripts %}
+<script>
+  let currentThreadId = null;
+  let isStreaming = false;
+
+  // Initialize
+  document.addEventListener("DOMContentLoaded", () => {
+    loadThreads();
+
+    // Auto-focus input
+    document.getElementById("user-input").focus();
+  });
+
+  async function loadThreads() {
+    try {
+      const res = await fetch("/chatbot/threads");
+      const data = await res.json();
+      renderThreadList(data.threads);
+    } catch (e) {
+      console.error("Failed to load threads:", e);
+    }
+  }
+
+  function renderThreadList(threads) {
+    const list = document.getElementById("thread-list");
+    list.innerHTML = "";
+
+    if (!threads || threads.length === 0) {
+      list.innerHTML = `<div class="p-4 text-center text-sm text-base-content/50 italic">No recent chats</div>`;
+      return;
+    }
+
+    threads.reverse().forEach((tid) => {
+      const btn = document.createElement("button");
+      btn.className = `btn btn-ghost btn-block justify-start normal-case h-auto py-3 px-4 gap-3 ${currentThreadId === tid ? "btn-active bg-primary/10" : ""}`;
+      btn.onclick = () => selectThread(tid);
+
+      const shortId = tid.length > 15 ? tid.substring(0, 15) + "..." : tid;
+
+      btn.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="opacity-50"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                <div class="flex flex-col items-start overflow-hidden">
+                    <span class="font-medium text-sm truncate w-full">${tid}</span>
+                </div>
+            `;
+      list.appendChild(btn);
+    });
+  }
+
+  function startNewChat() {
+    currentThreadId = "chat-" + Math.random().toString(36).substring(2, 11);
+    document.getElementById("welcome-view").classList.remove("hidden");
+    document.getElementById("chat-messages").classList.add("hidden");
+    document.getElementById("chat-messages").innerHTML = "";
+    document.getElementById("active-thread-info").innerText = "";
+
+    const inputs = document.querySelectorAll("#thread-list button");
+    inputs.forEach((btn) =>
+      btn.classList.remove("btn-active", "bg-primary/10"),
+    );
+  }
+
+  async function selectThread(tid) {
+    if (isStreaming) return;
+
+    currentThreadId = tid;
+    document.getElementById("welcome-view").classList.add("hidden");
+    document.getElementById("chat-messages").classList.remove("hidden");
+    document.getElementById("chat-messages").innerHTML =
+      '<div class="flex justify-center p-8"><span class="loading loading-spinner text-primary"></span></div>';
+    document.getElementById("active-thread-info").innerText =
+      `Thread ID: ${tid}`;
+
+    // Highlight active thread in sidebar
+    const buttons = document.querySelectorAll("#thread-list button");
+    buttons.forEach((btn) => {
+      if (btn.innerText.includes(tid)) {
+        btn.classList.add("btn-active", "bg-primary/10");
+      } else {
+        btn.classList.remove("btn-active", "bg-primary/10");
+      }
+    });
+
+    try {
+      const res = await fetch(`/chatbot/history/${encodeURIComponent(tid)}`);
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+      const data = await res.json();
+      renderHistory(data.history);
+    } catch (e) {
+      console.error("Failed to load history:", e);
+      document.getElementById("chat-messages").innerHTML = `
+                <div class="alert alert-error shadow-lg">
+                    <div>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current flex-shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        <span>Error: Failed to load conversation history. ${e.message}</span>
+                    </div>
+                </div>`;
+    }
+  }
+
+  function renderHistory(history) {
+    const container = document.getElementById("chat-messages");
+    container.innerHTML = "";
+
+    if (!history || history.length === 0) {
+      container.innerHTML =
+        '<div class="text-center text-base-content/40 py-8">Conversation started</div>';
+      return;
+    }
+
+    history.forEach((msg) => {
+      addMessageBubble(msg.role === "user" ? "user" : "assistant", msg.content);
+    });
+
+    scrollToBottom();
+  }
+
+  function addMessageBubble(role, content, isStreaming = false) {
+    const container = document.getElementById("chat-messages");
+    const template = document.getElementById("message-template");
+    const clone = template.content.cloneNode(true);
+    const chat = clone.querySelector(".chat");
+    const bubble = clone.querySelector(".chat-bubble");
+    const header = clone.querySelector(".chat-header");
+
+    chat.classList.add(role === "user" ? "chat-end" : "chat-start");
+    if (role === "user") {
+      bubble.classList.add("chat-bubble-primary");
+    } else {
+      bubble.classList.add("bg-base-100", "border", "border-base-300");
+    }
+    bubble.innerText = content;
+
+    header.innerText = role === "user" ? "You" : "Medical Assistant";
+
+    if (isStreaming) {
+      chat.id = "streaming-bubble";
+    }
+
+    container.appendChild(clone);
+    scrollToBottom();
+    return bubble;
+  }
+
+  function scrollToBottom() {
+    const container = document.getElementById("messages-container");
+    container.scrollTop = container.scrollHeight;
+  }
+
+  function sendQuickQuery(text) {
+    document.getElementById("user-input").value = text;
+    handleChatSubmit(new Event("submit"));
+  }
+
+  async function handleChatSubmit(e) {
+    e.preventDefault();
+    if (isStreaming) return;
+
+    const input = document.getElementById("user-input");
+    const text = input.value.trim();
+    if (!text) return;
+
+    if (!currentThreadId) {
+      currentThreadId = "chat-" + Math.random().toString(36).substring(2, 11);
+    }
+
+    // Hide welcome view on first message
+    document.getElementById("welcome-view").classList.add("hidden");
+    document.getElementById("chat-messages").classList.remove("hidden");
+
+    // Add user message
+    addMessageBubble("user", text);
+    input.value = "";
+    input.disabled = true;
+    document.getElementById("send-btn").disabled = true;
+
+    // Prepare assistant message
+    const assistantBubble = addMessageBubble("assistant", "", true);
+    isStreaming = true;
+
+    try {
+      const response = await fetch("/chatbot/query", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: text,
+          thread_id: currentThreadId,
+          stream: true,
+        }),
+      });
+
+      if (!response.ok) throw new Error("Query failed");
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulatedContent = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split("\n");
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const dataStr = line.substring(6);
+            if (dataStr === "[DONE]") continue;
+
+            try {
+              const data = JSON.parse(dataStr);
+              if (data.content) {
+                accumulatedContent += data.content;
+                assistantBubble.innerText = accumulatedContent;
+                scrollToBottom();
+              }
+            } catch (e) {
+              console.error("Error parsing SSE data:", e);
+            }
+          }
+        }
+      }
+
+      // Cleanup streaming state
+      const streamingDiv = document.getElementById("streaming-bubble");
+      if (streamingDiv) streamingDiv.id = "";
+
+      // Reload thread list to show new thread if needed
+      loadThreads();
+    } catch (err) {
+      console.error("Chat Error:", err);
+      assistantBubble.innerText = "I encountered an error. Please try again.";
+      assistantBubble.classList.add("chat-bubble-error");
+    } finally {
+      isStreaming = false;
+      input.disabled = false;
+      document.getElementById("send-btn").disabled = false;
+      input.focus();
+    }
+  }
+</script>
+{% endblock %}
