@@ -17,11 +17,9 @@ An intelligent healthcare support platform that streamlines patient-doctor inter
 - **Smart Routing**: Directs tickets to the appropriate personnel based on AI analysis.
 
 - **Agentic RAG Chatbot**: A state-of-the-art medical assistant powered by **LangGraph**.
-  - **3-Stage Guard Pipeline**: Existing local ML models validate queries for gibberish/non-medical content before reaching the agent.
-  - **Smart Routing**: Detects medical emergencies and vague symptoms for immediate prioritized responses.
-  - **Corrective RAG (CRAG)**: An automated grading loop that evaluates the relevance of retrieved documents.
-  - **Iterative Query Transformation**: If a database search fails, the agent re-optimizes and re-phrases the query for a more accurate search.
-  - **Concise & Grounded Answers**: Strictly answers based on past cases without unnecessary conversational fluff.
+  - **Thread-Based Persistence**: Leverages an **Async SQL Checkpointer** (SQLite) to automatically save and resume conversation states across sessions.
+  - **Fault Tolerance**: The persistence layer ensures that even if the server restarts or crashes, the agentic workflow can resume execution from the exact last checkpoint without losing state progress.
+  - **Short-Term Memory (STM)**: maintains granular conversation context within a thread, allowing the agent to remember medical queries and previous advice in real-time.
 
 ## User Roles & Capabilities
 
