@@ -1,0 +1,55 @@
+@import "tailwindcss";
+@plugin "daisyui";
+@plugin "@tailwindcss/typography";
+
+@theme {
+  --color-primary: #6366f1;
+  --color-primary-focus: #4f46e5;
+  --color-secondary: #3b82f6;
+  --color-secondary-focus: #2563eb;
+  --color-neutral: #16171d;
+  --color-neutral-focus: #1f2128;
+  --color-neutral-content: #f3f4f6;
+  --color-base-100: #1a1c23;
+  --color-base-200: #16171d;
+  --color-base-300: #0f1014;
+  --color-base-content: #9ca3af;
+}
+
+:root {
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: dark;
+  color: #9ca3af;
+  background-color: #16171d;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+/* Glassmorphism Utility */
+.glass-card {
+  @apply bg-neutral/80 backdrop-blur-xl border border-white/10 shadow-2xl;
+}
+
+.gradient-bg {
+  @apply bg-gradient-to-tr from-indigo-500 to-blue-600;
+}
+
+/* Override #root for full layout */
+#root {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+  border: none;
+}
