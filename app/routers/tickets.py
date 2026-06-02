@@ -26,14 +26,13 @@ async def process_ticket_ai(ticket_id: str, title: str, description: str):
     if not ticket:
         return
     
-    # Fetch available specialists from DB to help AI choose
     doctors = await Doctor.find_all().to_list()
     available_specialists = []
     for d in doctors:
         available_specialists.extend(d.specialist)
-    available_specialists = list(set(available_specialists)) # unique list
+    available_specialists = list(set(available_specialists))
 
-    # Analyze Ticket using AI, providing context about available doctors
+
     analysis = await analyze_ticket_ai(title, description, available_specialists=available_specialists)
 
     if analysis:
@@ -43,7 +42,6 @@ async def process_ticket_ai(ticket_id: str, title: str, description: str):
         
         required_specialists = analysis.get("specialist", [])
         if required_specialists:
-            # Try to find a doctor that matches the AI's selection
             doctor = await Doctor.find_one({"specialist": {"$in": required_specialists}})
 
             if doctor:
@@ -66,8 +64,6 @@ async def get_tickets(request: Request, user = Depends(require_user)):
         return templates.TemplateResponse("dashboard.html", {"request": request, "user": user, "tickets": tickets})
     else:
         tickets = await Ticket.find(Ticket.assigned_to == user.id).sort("-created_at").to_list()
-        
-        # Helper map for patient emails
         patient_ids = [t.created_by for t in tickets]
         patients = await Patient.find({"_id": {"$in": patient_ids}}).to_list()
         patient_map = {p.id: p.email for p in patients}
@@ -87,10 +83,8 @@ async def create_ticket(
 ):
     from app.utils.ml_utils import verify_medical_query
     
-    # 0. Validate Query Type (Gibberish / Non-Medical)
     validation = await verify_medical_query(f"Title: {title}\nDescription: {description}")
     if validation and not validation.get("is_valid", True):
-        # We redirect back with an error parameter (simplest approach for now)
         return RedirectResponse("/tickets?error=invalid_ticket", status_code=303)
 
     ticket = Ticket(
@@ -104,7 +98,6 @@ async def create_ticket(
     # Triger AI analysis in Background
     background_tasks.add_task(process_ticket_ai, str(ticket.id), title, description)
     return RedirectResponse("/tickets", status_code=303)
-    
 
 
 @router.get("/{id}")
@@ -135,7 +128,7 @@ async def analyze_closure(id: str, background_tasks: BackgroundTasks, user = Dep
     if not ticket:
         return RedirectResponse("/tickets")
     
-    # only doctor/admin can close
+    # only doctor can close
     if user.role == "patient" and ticket.created_by != user.id:
         return RedirectResponse(f"/tickets/{id}")
     

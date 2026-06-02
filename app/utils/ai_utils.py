@@ -9,12 +9,12 @@ from pydantic import BaseModel, Field
 
 load_dotenv()
 
-# Initialize LangChain Models
+
 gemini_api_key = os.getenv("GEMINI_API_KEY")
 groq_api_key = os.getenv("GROQ_API_KEY")
 
 
-# Initialize Google GenAI Client
+
 client = None
 if gemini_api_key:
     try:
@@ -33,7 +33,7 @@ if groq_api_key:
         groq_api_key=groq_api_key
     )
 
-# Pydantic Models for parsers 
+
 class TicketAnalysis(BaseModel):
     summary: str = Field(description="A short 1-2 sentence summary of the issue.")
     priority: str = Field(description="One of 'low', 'medium', or 'high'.")

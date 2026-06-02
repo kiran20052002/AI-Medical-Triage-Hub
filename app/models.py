@@ -56,3 +56,13 @@ class Ticket(Document):
 
     class Settings(BaseConfig.Config):
         name = "tickets"
+
+class RefreshToken(Document):
+    token: str
+    user_id: PydanticObjectId = Field(alias="userId")
+    user_role: str = Field(alias="userRole")
+    expires_at: datetime = Field(alias="expiresAt")
+    created_at: datetime = Field(default_factory=datetime.now, alias="createdAt")
+
+    class Settings(BaseConfig.Config):
+        name = "refresh_tokens"

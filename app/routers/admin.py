@@ -15,7 +15,6 @@ async def admin_dashboard(request: Request, current_user = Depends(get_current_u
     total_patients_count = await Patient.find().count()
     total_doctors_count = await Doctor.find().count()
 
-    # Fetch only doctors for the list
     doctors = await Doctor.find().to_list()
 
     all_users = []
@@ -37,7 +36,7 @@ async def admin_dashboard(request: Request, current_user = Depends(get_current_u
         "total_patients": total_patients_count,
         "total_doctors": total_doctors_count,
         "total_tickets": total_tickets,
-        "all_users": all_users, # This now contains only doctors
+        "all_users": all_users, 
         "reports": reports
     })
 

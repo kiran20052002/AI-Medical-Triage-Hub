@@ -33,7 +33,6 @@ templates = Jinja2Templates(directory="app/templates")
 
 from app.routers import auth, tickets, chat, chatbot, reports, admin
 
-# ...
 
 app.include_router(auth.router)
 app.include_router(tickets.router)
@@ -44,8 +43,7 @@ app.include_router(admin.router)
 
 @app.get("/")
 async def home(request: Request):
-    # If logged in, go to dashboard, else home/login
-    return RedirectResponse("/auth/login") # Simple redirect for now
+    return RedirectResponse("/auth/login") 
 
 if __name__ == "__main__":
     import uvicorn

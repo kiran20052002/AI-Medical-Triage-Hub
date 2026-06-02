@@ -27,7 +27,6 @@ async def generate_report(
     user = Depends(require_user)
 ):
 
-    # Retrieve ticket
     ticket = await Ticket.get(ticket_id)
     if not ticket or ticket.status != "completed":
         return RedirectResponse("/tickets", status_code=303)
