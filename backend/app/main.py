@@ -1,0 +1,71 @@
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from contextlib import asynccontextmanager
+from app.config.db import init_db
+from app.utils.agent import create_agent_graph
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from dotenv import load_dotenv
+
+
+
+load_dotenv()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    await init_db()
+    
+    # Initialize LangGraph Checkpointer and Agent
+    async with AsyncSqliteSaver.from_conn_string("checkpoints.sqlite") as saver:
+        app.state.saver = saver
+        app.state.agent = create_agent_graph(checkpointer=saver)
+        yield
+    
+    # Shutdown
+
+app = FastAPI(lifespan=lifespan)
+
+import os
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    log_msg = f"\n>>> [LOGGER] {request.method} {request.url.path}\n"
+    log_msg += f">>> [LOGGER] Cookies: {request.cookies}\n"
+    response = await call_next(request)
+    log_msg += f"<<< [LOGGER] Response: {response.status_code}\n"
+    
+    with open("debug_auth.log", "a") as f:
+        f.write(log_msg)
+    return response
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        os.getenv("FRONTEND_URL", "http://localhost:5173")
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+from app.routers import auth, tickets, chat, chatbot, reports, admin
+
+
+app.include_router(auth.router)
+app.include_router(tickets.router)
+app.include_router(chat.router)
+app.include_router(chatbot.router)
+app.include_router(reports.router)
+app.include_router(admin.router)
+
+@app.get("/")
+async def home(request: Request):
+    return {"status": "API is Online", "version": "2.0.0 (Agentic React)"}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
