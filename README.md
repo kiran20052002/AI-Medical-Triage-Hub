@@ -16,10 +16,11 @@ An intelligent healthcare support platform that streamlines patient-doctor inter
 
 - **Smart Routing**: Directs tickets to the appropriate personnel based on AI analysis.
 
-- **Agentic RAG Chatbot**: A state-of-the-art medical assistant powered by **LangGraph**.
+- **Agentic RAG Chatbot**: A state-of-art medical assistant powered by **LangGraph**.
+  - **Real-time Streaming**: Uses `astream_events` (v2) to provide a fluid, token-by-token chat experience for patients.
   - **Thread-Based Persistence**: Leverages an **Async SQL Checkpointer** (SQLite) to automatically save and resume conversation states across sessions.
   - **Fault Tolerance**: The persistence layer ensures that even if the server restarts or crashes, the agentic workflow can resume execution from the exact last checkpoint without losing state progress.
-  - **Short-Term Memory (STM)**: maintains granular conversation context within a thread, allowing the agent to remember medical queries and previous advice in real-time.
+  - **Short-Term Memory (STM)**: Maintains granular conversation context within a thread, allowing the agent to remember medical queries and previous advice in real-time.
 
 ## User Roles & Capabilities
 
@@ -63,8 +64,3 @@ This project uses a **Stateless Authentication** mechanism secured by **JSON Web
     - `id`: User ID
 3.  **Storage**: The JWT is sent to the client and stored in an **HTTPOnly Cookie** named `access_token`. This prevents client-side access.
 4.  **Verification**: Protected routes use the `get_current_user` dependency to read the cookie, decode the token, and verify the user session.
-
-### Key Libraries:
-
-- `python-jose`: For JWT encoding/decoding.
-- `passlib`: For password hashing (bcrypt).

@@ -5,7 +5,9 @@ from fastapi.templating import Jinja2Templates
 from contextlib import asynccontextmanager
 from app.config.db import init_db
 from app.utils.agent import create_agent_graph
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langgraph.checkpoint.mongodb import MongoDBSaver
+from pymongo import MongoClient
+import os
 from dotenv import load_dotenv
 
 
@@ -17,28 +19,21 @@ async def lifespan(app: FastAPI):
     # Startup
     await init_db()
     
-    # Initialize LangGraph Checkpointer and Agent
-    async with AsyncSqliteSaver.from_conn_string("checkpoints.sqlite") as saver:
-        app.state.saver = saver
-        app.state.agent = create_agent_graph(checkpointer=saver)
-        yield
+    # Initialize checkpointer and agent
+    sync_client = MongoClient(os.getenv("MONGO_URI"))
+    saver = MongoDBSaver(sync_client, db_name="langgraph_state")
+    
+    app.state.saver = saver
+    app.state.agent = create_agent_graph(checkpointer=saver)
+    
+    yield
     
     # Shutdown
+    sync_client.close()
+    
 
 app = FastAPI(lifespan=lifespan)
 
-import os
-
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    log_msg = f"\n>>> [LOGGER] {request.method} {request.url.path}\n"
-    log_msg += f">>> [LOGGER] Cookies: {request.cookies}\n"
-    response = await call_next(request)
-    log_msg += f"<<< [LOGGER] Response: {response.status_code}\n"
-    
-    with open("debug_auth.log", "a") as f:
-        f.write(log_msg)
-    return response
 
 app.add_middleware(
     CORSMiddleware,
@@ -64,7 +59,7 @@ app.include_router(admin.router)
 
 @app.get("/")
 async def home(request: Request):
-    return {"status": "API is Online", "version": "2.0.0 (Agentic React)"}
+    return {"message": "Welcome to the Medical Triage Hub API!"}
 
 if __name__ == "__main__":
     import uvicorn

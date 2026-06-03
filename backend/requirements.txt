@@ -6,7 +6,6 @@ pydantic[email]
 python-jose[cryptography]
 passlib[bcrypt]
 stream-chat
-jinja2
 python-multipart
 python-dotenv
 langchain
@@ -19,6 +18,5 @@ scikit-learn==1.6.1
 nltk
 langgraph
 langchain-mongodb
-langgraph-checkpoint-sqlite
+langgraph-checkpoint-mongodb
 jsonpatch
-
