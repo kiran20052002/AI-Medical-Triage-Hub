@@ -66,3 +66,14 @@ class RefreshToken(Document):
 
     class Settings(BaseConfig.Config):
         name = "refresh_tokens"
+
+class ChatMessage(Document):
+    ticket_id: PydanticObjectId = Field(alias="ticketId")
+    sender_id: PydanticObjectId = Field(alias="senderId")
+    sender_name: str = Field(alias="senderName")
+    sender_role: str = Field(alias="senderRole")
+    text: str
+    created_at: datetime = Field(default_factory=datetime.now, alias="createdAt")
+
+    class Settings(BaseConfig.Config):
+        name = "chat_messages"

@@ -6,13 +6,13 @@ An intelligent healthcare support platform that streamlines patient-doctor inter
 
 - **AI Triage & Analysis**: Automatically analyzes patient tickets to estimate urgency and suggest relevant specialists.
 
-- **Clinical Triage (SOAP) Reports**: Generates professional medical summaries for admins and doctors using the SOAP format:
+- **Clinical Reports(SOAP) **: Generates professional medical summaries for admins and doctors using the SOAP format:
   - **Subjective (S)**: Patient's complaints, history, and reported symptoms.
   - **Objective (O)**: Direct observations, including photos or exam findings.
   - **Assessment (A)**: Professional AI analysis and likely diagnosis.
   - **Plan (P)**: Recommended treatment, tests ordered, and follow-up advice.
 
-- **Real-time Chat**: Integrated messaging between patients and doctors using StreamChat.
+- **Real-time Chat**: Integrated messaging between patients and doctors using **Socket.io**
 
 - **Smart Routing**: Directs tickets to the appropriate personnel based on AI analysis.
 
@@ -48,7 +48,7 @@ An intelligent healthcare support platform that streamlines patient-doctor inter
 - **Database**: MongoDB (Beanie ODM)
 - **AI/LLM**: Groq (Llama 3), Google Gemini (Embeddings), **LangGraph (Agentic Orchestration)**
 - **Local ML/NLP**: Scikit-Learn (MultinomialNB, RandomForest), NLTK (PorterStemmer, Stopwords)
-- **Real-time**: StreamChat
+- **Real-time**: Socket.io
 - **Auth**: JWT (Stateless)
 
 ## Authentication

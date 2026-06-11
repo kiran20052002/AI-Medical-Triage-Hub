@@ -1,16 +1,13 @@
 from fastapi import APIRouter, Depends, Request, Form, BackgroundTasks, HTTPException, status
 from fastapi.responses import JSONResponse
 from app.dependencies import get_current_user, require_user
-from app.models import Ticket, Patient, Doctor
+from app.models import Ticket, Patient, Doctor, ChatMessage
+from beanie import PydanticObjectId
 from datetime import datetime
 import os
-from stream_chat import StreamChat
 from dotenv import load_dotenv
 
 load_dotenv()
-api_key = os.getenv("STREAM_API_KEY")
-api_secret = os.getenv("STREAM_API_SECRET")
-server_client = StreamChat(api_key=api_key, api_secret=api_secret)
 
 
 router = APIRouter(prefix="/tickets", tags=["Tickets"])
@@ -130,36 +127,30 @@ async def analyze_closure(id: str, background_tasks: BackgroundTasks, user = Dep
     if user.role == "patient" and ticket.created_by != user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
     
-    # 1. Fetch Chat History(if exists)
     chat_history_text = ""
     if ticket.channel_id:
         try:
-            channel = server_client.channel("messaging", ticket.channel_id)
-            messages = channel.query(messages={'limit': 50})['messages']
-
-            # Format for AI
+            # Fetch local messages
+            messages = await ChatMessage.find(ChatMessage.ticket_id == PydanticObjectId(ticket.id)).sort("created_at").limit(50).to_list()
+            
             formatted_messages = []
             for m in messages:
                 formatted_messages.append({
-                    "user": {"name": m.get("user", {}).get("name", "Unknown")},
-                    "text": m.get("text", "")
+                    "user": {"name": m.sender_name},
+                    "text": m.text
                 })
             
-            #2. Analyze chat for closure
             analysis = await analyze_ticket_chat_ai(formatted_messages)
             if analysis and analysis.get("recommendedStatus") == "In Progress":
                 reason = analysis.get("reasoning", "AI suggests further discussion.")
                 print(f"Smart Close Blocked: {reason}")
                 return {"status": "blocked", "message": f"Smart Close Blocked: {reason}"}
 
-            # If completed, collect text for summary
             chat_history_text = "\n".join([f"{m['user']['name']}: {m['text']}" for m in formatted_messages])
         
         except Exception as e:
             print(f"Warning: Failed to fetch chat history: {e}")
     
-    # 3. Generate Summary
-    # include chat history in context
     context = (ticket.helpful_notes or "") + "\n\nChat History:\n" + chat_history_text
     summary = await generate_closure_summary(ticket.title, ticket.description, context)
 
@@ -196,42 +187,11 @@ async def accept_connection(id: str, user = Depends(require_user)):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
     
     if ticket.connection_status == "requested":
-        # Create Chat Channel
+        # Connection Accepted - Set channel ID for Socket.io room identification
         try:
-            patient = await Patient.get(ticket.created_by)
-            doctor = await Doctor.get(ticket.assigned_to)
-
-            patient_id = str(ticket.created_by)
-            doctor_id = str(ticket.assigned_to)
-
-            patient_name = patient.email if patient else "Unknown Patient"
-            doctor_name = doctor.email if doctor else "Unknown Doctor"
-
-            server_client.upsert_user({
-                "id": patient_id,
-                "role": "user",
-                "name": patient_name
-            })
-            server_client.upsert_user({
-                "id": doctor_id,
-                "role": "user",
-                "name": doctor_name
-            })
-
-            channel_id = f"ticket-{ticket.id}"
-            channel = server_client.channel(
-                "messaging",
-                channel_id,
-                {
-                    "members": [patient_id, doctor_id],
-                    "name": f"Ticket: {ticket.title}"
-                }
-            )
-
-            channel.create(patient_id)
-            ticket.channel_id = channel_id
+            ticket.channel_id = f"ticket-{ticket.id}"
             ticket.connection_status = "accepted"
-            print(f"Chat Channel Created: {channel_id}")
+            print(f"Room Created: {ticket.channel_id}")
             await ticket.save()
 
         except Exception as e:

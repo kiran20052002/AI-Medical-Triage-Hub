@@ -1,40 +1,27 @@
-from fastapi import APIRouter, Depends, Request
-from stream_chat import StreamChat
-import os
-from app.dependencies import require_user, get_current_user
-from dotenv import load_dotenv
-
-load_dotenv()
-
+from fastapi import APIRouter, Depends, HTTPException, status
+from app.dependencies import require_user
+from app.models import ChatMessage
+from beanie import PydanticObjectId
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
-api_key = os.getenv("STREAM_API_KEY")
-api_secret = os.getenv("STREAM_API_SECRET")
+@router.get("/history/{ticket_id}")
+async def get_chat_history(ticket_id: str, user = Depends(require_user)):
+    try:
+        messages = await ChatMessage.find(ChatMessage.ticket_id == PydanticObjectId(ticket_id)).sort("created_at").to_list()
+        return {"messages": messages}
+    except Exception as e:
+        print(f"Error fetching history: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch chat history")
 
-# Initialize Server Client
-server_client = StreamChat(api_key, api_secret)
-
-
-
-
+# Deprecated/Removed Stream Token logic
 @router.get("/token")
-async def get_token(user = Depends(require_user)):
-    user_id = str(user.id)
-    token = server_client.create_token(user_id)
-
-    # sync user to stream
-    server_client.upsert_user({
-        "id": user_id,
-        "name": user.email,
-        "role": "user"
-    })
-
+async def get_token_stub(user = Depends(require_user)):
+    # Returning a stub for now to avoid frontend breakage until frontend is updated
     return {
-        "token": token, 
-        "stream_api_key": api_key, 
-        "userId": user_id,
-        "user_id": user_id, 
+        "status": "deprecated",
+        "userId": str(user.id),
+        "user_id": str(user.id),
         "user_name": user.email
     }
     

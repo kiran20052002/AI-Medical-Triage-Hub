@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, Form, BackgroundTasks, HTTPException, status
 from app.dependencies import require_user
-from app.models import Ticket, Report
-from app.utils.ai_utils import generate_embedding, generate_soap_note
-from stream_chat import StreamChat
+from app.models import Ticket, Report, ChatMessage
+from beanie import PydanticObjectId
 import os
+from fastapi.responses import RedirectResponse
 
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
@@ -34,15 +34,9 @@ async def generate_report(
     chat_transcript = ""
     if ticket.channel_id:
         try:
-            api_key = os.getenv("STREAM_API_KEY")
-            api_secret = os.getenv("STREAM_API_SECRET")
-            server_client = StreamChat(api_key=api_key, api_secret=api_secret)
-
-            channel = server_client.channel("messaging", ticket.channel_id)
-
-            # Fetch last 100 messages
-            messages = channel.query(messages={'limit': 100})['messages']
-            chat_transcript = "\n".join([f"{m.get('user', {}).get('name', 'User')}: {m.get('text', '')}" for m in messages])
+            # Fetch local messages
+            messages = await ChatMessage.find(ChatMessage.ticket_id == PydanticObjectId(ticket.id)).sort("created_at").limit(100).to_list()
+            chat_transcript = "\n".join([f"{m.sender_name}: {m.text}" for m in messages])
         
         except Exception as e:
             print(f"Failed to fetch chat for report: {e}")
