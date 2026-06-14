@@ -6,7 +6,7 @@ An intelligent healthcare support platform that streamlines patient-doctor inter
 
 - **AI Triage & Analysis**: Automatically analyzes patient tickets to estimate urgency and suggest relevant specialists.
 
-- **Clinical Reports(SOAP) **: Generates professional medical summaries for admins and doctors using the SOAP format:
+- **Clinical Reports(SOAP)**: Generates professional medical summaries for admins and doctors using the SOAP format:
   - **Subjective (S)**: Patient's complaints, history, and reported symptoms.
   - **Objective (O)**: Direct observations, including photos or exam findings.
   - **Assessment (A)**: Professional AI analysis and likely diagnosis.

@@ -53,13 +53,14 @@ async def join_room(sid, data):
 
 @sio.event
 async def send_message(sid, data):
+    print(f"DEBUG: Socket.io received data: {data}")
     ticket_id = data.get("ticketId")
     sender_id = data.get("senderId")
-    sender_name = data.get("senderName")
-    sender_role = data.get("senderRole")
+    sender_name = data.get("senderName") or "Unknown User"
+    sender_role = data.get("senderRole") or "user"
     text = data.get("text")
     
-    if ticket_id and text:
+    if ticket_id and text and sender_id:
         # Save to database
         message = ChatMessage(
             ticket_id=PydanticObjectId(ticket_id),

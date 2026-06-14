@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Request, Form, BackgroundTasks, HTTPException, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from app.dependencies import get_current_user, require_user
 from app.models import Ticket, Patient, Doctor, ChatMessage
 from beanie import PydanticObjectId

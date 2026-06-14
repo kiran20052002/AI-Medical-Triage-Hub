@@ -160,7 +160,7 @@ const TicketDetailPage = () => {
                       <span className="text-xs font-bold uppercase tracking-widest">Pending connection acceptance</span>
                     </div>
                   )
-                ) : user?.role === 'patient' && ticket.createdBy === user?.id ? (
+                ) : user?.role === 'patient' && (ticket.createdBy === user?.id || ticket.created_by === user?.id) ? (
                   <button onClick={handleRequestConnection} className="btn btn-primary w-full md:w-auto px-12 shadow-lg shadow-primary/20">
                     Request Connection
                   </button>

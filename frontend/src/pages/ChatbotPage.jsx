@@ -15,19 +15,6 @@ const AIChatbotPage = () => {
   // Actually, I'll use the existing pattern if possible or rely on the navigate.
   
   useEffect(() => {
-    // Basic protection if hit directly
-    const checkRole = async () => {
-      try {
-        const res = await api.get('/auth/me');
-        if (res.data.role !== 'patient') {
-          const dash = res.data.role === 'admin' ? '/dashboard/admin' : '/dashboard/doctor';
-          window.location.href = dash;
-        }
-      } catch (e) {
-        window.location.href = '/auth/login';
-      }
-    };
-    checkRole();
     loadThreads();
   }, []);
 

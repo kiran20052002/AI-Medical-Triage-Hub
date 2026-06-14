@@ -47,12 +47,16 @@ class ChatAnalysis(BaseModel):
 
 
 
-async def analyze_ticket_ai(title: str, description: str):
+async def analyze_ticket_ai(title: str, description: str, available_specialists: Optional[List[str]] = None):
     if not llm:
         print("AI Analysis Skipped: No LLM initialized.")
         return None
 
     parser = JsonOutputParser(pydantic_object=TicketAnalysis)
+
+    specialists_str = ""
+    if available_specialists:
+        specialists_str = f"Available Specialists (YOU MUST SELECT FROM THESE): {', '.join(available_specialists)}"
 
     prompt = PromptTemplate(
         template="""You are a medical triage agent.
@@ -62,16 +66,18 @@ async def analyze_ticket_ai(title: str, description: str):
         - Title: {title}
         - Description: {description}
         
+        {specialists_str}
+
         {format_instructions}
         """,
-        input_variables=["title", "description"],
+        input_variables=["title", "description", "specialists_str"],
         partial_variables={"format_instructions": parser.get_format_instructions()},
     )
 
     chain = prompt | llm | parser
 
     try:
-        result = await chain.ainvoke({"title": title, "description": description})
+        result = await chain.ainvoke({"title": title, "description": description, "specialists_str": specialists_str})
         return result
     except Exception as e:
         print(f"AI Analysis Failed: {e}")

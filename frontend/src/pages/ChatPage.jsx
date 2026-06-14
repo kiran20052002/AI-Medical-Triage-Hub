@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { io } from 'socket.io-client';
 import api from '../services/api';
 import { Send, User, MessageSquare, Clock, ShieldCheck, ChevronRight } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 const SOCKET_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -10,10 +11,11 @@ const ChatPage = () => {
   const [activeTicket, setActiveTicket] = useState(null);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
-  const [user, setUser] = useState(null);
+  const { user } = useAuth();
   const [socket, setSocket] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const messagesEndRef = useRef(null);
+  const activeTicketRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -22,17 +24,19 @@ const ChatPage = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+  
+  useEffect(() => {
+    activeTicketRef.current = activeTicket;
+  }, [activeTicket]);
 
   useEffect(() => {
     const init = async () => {
       try {
-        const [userRes, ticketsRes] = await Promise.all([
-          api.get('/auth/me'), // Assuming this endpoint exists to get current user info
-          api.get('/tickets/')
-        ]);
+        const ticketsRes = await api.get('/tickets/');
         
-        setUser(userRes.data);
-        const activeTickets = ticketsRes.data.tickets.filter(t => t.connectionStatus === 'accepted');
+        const activeTickets = ticketsRes.data.tickets.filter(t => 
+          (t.connectionStatus === 'accepted' || t.connection_status === 'accepted')
+        );
         setTickets(activeTickets);
         
         const newSocket = io(SOCKET_URL, {
@@ -45,8 +49,12 @@ const ChatPage = () => {
         });
 
         newSocket.on('new_message', (msg) => {
-          if (activeTicket && msg.ticketId === activeTicket._id) {
-            setMessages((prev) => [...prev, msg]);
+          const currentTicket = activeTicketRef.current;
+          if (currentTicket) {
+            const tId = currentTicket._id || currentTicket.id;
+            if (msg.ticketId === tId) {
+              setMessages((prev) => [...prev, msg]);
+            }
           }
         });
 
@@ -68,22 +76,23 @@ const ChatPage = () => {
   useEffect(() => {
     if (activeTicket && socket) {
       // Fetch history
-      api.get(`/chat/history/${activeTicket._id}`).then((res) => {
-        setMessages(res.data.messages);
+      const tId = activeTicket._id || activeTicket.id;
+      api.get(`/chat/history/${tId}`).then((res) => {
+        setMessages(res.data.messages || []);
       });
 
       // Join room
-      socket.emit('join_room', { room: `ticket-${activeTicket._id}` });
+      socket.emit('join_room', { room: `ticket-${tId}` });
     }
   }, [activeTicket]);
 
   const handleSendMessage = (e) => {
     e.preventDefault();
-    if (!newMessage.trim() || !activeTicket || !socket) return;
+    if (!newMessage.trim() || !activeTicket || !socket || !user) return;
 
     const messageData = {
-      ticketId: activeTicket._id,
-      senderId: user.id,
+      ticketId: activeTicket._id || activeTicket.id,
+      senderId: user.id || user._id,
       senderName: user.email,
       senderRole: user.role,
       text: newMessage
@@ -133,7 +142,7 @@ const ChatPage = () => {
                   </span>
                   <ChevronRight size={16} className={`transition-transform duration-300 ${activeTicket?._id === ticket._id ? 'translate-x-1' : 'opacity-0'}`} />
                 </div>
-                <p className="text-xs truncate opacity-60">ID: {ticket._id.slice(-8)}</p>
+                <p className="text-xs truncate opacity-60">ID: {(ticket._id || ticket.id).slice(-8)}</p>
               </button>
             ))
           )}
