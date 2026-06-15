@@ -4,7 +4,6 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from langgraph.graph import END, StateGraph
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from app.utils.ai_utils import llm, generate_medical_response
 from app.utils.tools import search_medical_records
 from pydantic import BaseModel, Field
@@ -40,26 +39,32 @@ class GradeAnswer(BaseModel):
     binary_score: str = Field(description="Answer addresses the question, 'yes', 'fallback', or 'rewrite'")
 
 # 3. Nodes
-def decide_retrieval_node(state: AgentState):
+async def decide_retrieval_node(state: AgentState):
     """
     Determines whether to retrieve from vector store or generate a direct response.
     """
     print("--- DECIDE RETRIEVAL NODE ---")
     messages = state["messages"]
-    last_message = messages[-1].content
     
-    system = """You are an expert medical router. 
-    Analyze the user's medical query and decide if it needs database retrieval.
-    - 'retrieve': The user is specifically asking for past similar cases, historical medical records, or "people like me" experiences.
-    - 'generate_direct': Everything else, including greetings, general medical questions, or emergencies.
+    system = """You are an expert medical router.
+    Analyze the LATEST user message and decide if it needs database retrieval.
+    - 'retrieve': Only when the LATEST message explicitly asks for past cases, similar records, or historical case data.
+    - 'generate_direct': For everything else: greetings, general health questions, symptom descriptions, or follow-up questions that don't need a new search.
+    If the user is just introducing themselves or saying hello, ALWAYS use 'generate_direct'.
     """
     
+    # We pass the full history for context, but emphasize the last message
+    last_human_msg = next((m.content for m in reversed(messages) if isinstance(m, HumanMessage)), "")
+    
     router_llm = llm.with_structured_output(RouteQuery)
-    route = router_llm.invoke([SystemMessage(content=system)] + messages)
+    route = await router_llm.ainvoke([
+        SystemMessage(content=system),
+        HumanMessage(content=f"Conversation History: {messages[:-1]}\n\nLATEST MESSAGE TO CLASSIFY: {last_human_msg}")
+    ])
     
     return {"mode": route.datasource}
 
-def generate_direct_node(state: AgentState):
+async def generate_direct_node(state: AgentState):
     """
     Handles queries that don't need retrieval: emergencies, clarifications, and general medical info.
     """
@@ -72,19 +77,23 @@ def generate_direct_node(state: AgentState):
     3. Otherwise, provide a polite and helpful medical response based on your general knowledge.
     """
     
-    response = llm.invoke([SystemMessage(content=system)] + messages)
+    response = await llm.ainvoke([SystemMessage(content=system)] + messages)
     return {"response": response.content, "messages": [response]}
 
 
-def retriever_node(state: AgentState):
+async def retriever_node(state: AgentState):
     print("--- RETRIEVER NODE ---")
-    messages = state["messages"]
-    query = messages[-1].content
-    # Call the tool directly for simplicity in the graph node
-    docs = search_medical_records.invoke(query)
+    # Use the optimized query if rewrite_question_node provided one
+    query = state.get("query")
+    if not query:
+        messages = state["messages"]
+        query = messages[-1].content
+        
+    # Call the tool directly
+    docs = await search_medical_records.ainvoke(query)
     return {"documents": docs, "retry_count": state.get("retry_count", 0)}
 
-def is_relevant_node(state: AgentState):
+async def is_relevant_node(state: AgentState):
     print("--- IS RELEVANT NODE ---")
     messages = state["messages"]
     query = messages[-1].content
@@ -99,7 +108,7 @@ def is_relevant_node(state: AgentState):
     Give a binary score 'yes' or 'no' score to indicate whether the document is relevant to the question."""
     
     grader_llm = llm.with_structured_output(GradeDocuments)
-    grade = grader_llm.invoke([
+    grade = await grader_llm.ainvoke([
         SystemMessage(content=system), 
         HumanMessage(content=f"Question: {query} \n\n Document: {docs}")
     ])
@@ -109,7 +118,7 @@ def is_relevant_node(state: AgentState):
     else:
         return {"mode": "nosimilar"}
 
-def rewrite_question_node(state: AgentState):
+async def rewrite_question_node(state: AgentState):
     print("--- REWRITE QUESTION NODE ---")
     messages = state["messages"]
     retry_count = state.get("retry_count", 0)
@@ -118,13 +127,11 @@ def rewrite_question_node(state: AgentState):
         return {"mode": "nosimilar"}
     
     system = "You are a medical query optimizer. The previous search failed to find relevant records. Rephrase the user's query to be more technical and descriptive for a better medical database search match. Return ONLY the new query string."
-    new_query = llm.invoke([SystemMessage(content=system)] + messages)
+    new_query = await llm.ainvoke([SystemMessage(content=system)] + messages)
     
-    # We update the query for the tool by returning a special message but it's easier to just return the string if needed.
-    # However, for consistency we'll just return the query string in the state metadata.
     return {"query": new_query.content, "retry_count": retry_count + 1, "mode": "retrieve"}
 
-def generate_from_context_node(state: AgentState):
+async def generate_from_context_node(state: AgentState):
     print("--- GENERATE FROM CONTEXT NODE ---")
     messages = state["messages"]
     docs = state["documents"]
@@ -143,15 +150,15 @@ def generate_from_context_node(state: AgentState):
     {docs}
     """
     
-    response = llm.invoke([SystemMessage(content=system_prompt)] + messages)
+    response = await llm.ainvoke([SystemMessage(content=system_prompt)] + messages)
     return {"response": response.content, "messages": [response]}
 
 def no_answer_found_node(state: AgentState):
     print("--- NO ANSWER FOUND NODE ---")
-    response = "I've searched our medical records and couldn't find a case similar to your description. I recommend creating a support ticket so one of our specialists can review your symptoms in detail."
-    return {"response": response}
+    response_text = "I've searched our medical records and couldn't find a case similar to your description. I recommend creating a support ticket so one of our specialists can review your symptoms in detail."
+    return {"response": response_text, "messages": [AIMessage(content=response_text)]}
 
-def is_sup_node(state: AgentState):
+async def is_sup_node(state: AgentState):
     """
     Determines whether the generation is grounded in the document and not hallucinating.
     """
@@ -166,14 +173,14 @@ def is_sup_node(state: AgentState):
     Give a binary score 'yes' or 'no'. 'yes' means that the answer is grounded in / supported by the set of documents."""
     
     grader_llm = llm.with_structured_output(GradeHallucinations)
-    grade = grader_llm.invoke([
+    grade = await grader_llm.ainvoke([
         SystemMessage(content=system),
         HumanMessage(content=f"Set of documents: \n\n {docs} \n\n LLM generation: {generation}")
     ])
 
     return {"hallucination_score": grade.binary_score}
 
-def revise_answer_node(state: AgentState):
+async def revise_answer_node(state: AgentState):
     """
     Revises the answer if hallucinations are detected.
     """
@@ -192,10 +199,10 @@ def revise_answer_node(state: AgentState):
     {response}
     """
     
-    revised_response = llm.invoke([SystemMessage(content=system)] + messages)
+    revised_response = await llm.ainvoke([SystemMessage(content=system)] + messages)
     return {"response": revised_response.content, "messages": [revised_response]}
 
-def is_use_node(state: AgentState):
+async def is_use_node(state: AgentState):
     """
     Determines whether the generation addresses the question.
     """
@@ -213,7 +220,7 @@ def is_use_node(state: AgentState):
     """
     
     grader_llm = llm.with_structured_output(GradeAnswer)
-    grade = grader_llm.invoke([
+    grade = await grader_llm.ainvoke([
         SystemMessage(content=system),
         HumanMessage(content=f"User question: \n\n {query} \n\n LLM generation: {generation}")
     ])

@@ -17,7 +17,6 @@ async def get_chat_history(ticket_id: str, user = Depends(require_user)):
 # Deprecated/Removed Stream Token logic
 @router.get("/token")
 async def get_token_stub(user = Depends(require_user)):
-    # Returning a stub for now to avoid frontend breakage until frontend is updated
     return {
         "status": "deprecated",
         "userId": str(user.id),

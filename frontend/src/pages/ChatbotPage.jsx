@@ -6,14 +6,9 @@ const AIChatbotPage = () => {
   const [currentThreadId, setCurrentThreadId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
-  const [isStreaming, setIsStreaming] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const messagesEndRef = useRef(null);
 
-  const { user } = api.context || {}; // Assuming we might need to get user from context if not already available
-  // However, I see 'api' is imported. Checking for useAuth context would be better.
-  // Actually, I'll use the existing pattern if possible or rely on the navigate.
-  
   useEffect(() => {
     loadThreads();
   }, []);
@@ -36,7 +31,6 @@ const AIChatbotPage = () => {
   };
 
   const selectThread = async (tid) => {
-    if (isStreaming) return;
     setCurrentThreadId(tid);
     setIsLoadingHistory(true);
     setMessages([]);
@@ -51,15 +45,29 @@ const AIChatbotPage = () => {
   };
 
   const startNewChat = () => {
-    if (isStreaming) return;
     setCurrentThreadId(`chat-${Math.random().toString(36).substring(2, 11)}`);
     setMessages([]);
+  };
+
+  const handleDeleteThread = async (e, tid) => {
+    e.stopPropagation();
+    if (!window.confirm('Are you sure you want to delete this chat session permanently?')) return;
+    
+    try {
+      await api.delete(`/chatbot/thread/${encodeURIComponent(tid)}`);
+      if (currentThreadId === tid) {
+        startNewChat();
+      }
+      loadThreads();
+    } catch (e) {
+      console.error('Failed to delete thread');
+    }
   };
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
     const text = inputText.trim();
-    if (!text || isStreaming) return;
+    if (!text) return;
 
     let tid = currentThreadId;
     if (!tid) {
@@ -69,14 +77,13 @@ const AIChatbotPage = () => {
 
     setMessages(prev => [...prev, { role: 'user', content: text }]);
     setInputText('');
-    setIsStreaming(true);
 
     try {
       const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
       const response = await fetch(`${baseUrl}/chatbot/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: text, thread_id: tid, stream: true }),
+        body: JSON.stringify({ query: text, thread_id: tid }),
       });
 
       if (!response.ok) throw new Error('Query failed');
@@ -84,8 +91,7 @@ const AIChatbotPage = () => {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let assistantMessage = '';
-
-      setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
+      let isFirstChunk = true;
 
       while (true) {
         const { value, done } = await reader.read();
@@ -102,12 +108,18 @@ const AIChatbotPage = () => {
             try {
               const data = JSON.parse(dataStr);
               if (data.content) {
-                assistantMessage += data.content;
-                setMessages(prev => {
-                  const last = prev[prev.length - 1];
-                  const others = prev.slice(0, -1);
-                  return [...others, { ...last, content: assistantMessage }];
-                });
+                if (isFirstChunk) {
+                  assistantMessage = data.content;
+                  setMessages(prev => [...prev, { role: 'assistant', content: assistantMessage }]);
+                  isFirstChunk = false;
+                } else {
+                  assistantMessage += data.content;
+                  setMessages(prev => {
+                    const last = prev[prev.length - 1];
+                    const others = prev.slice(0, -1);
+                    return [...others, { ...last, content: assistantMessage }];
+                  });
+                }
               }
             } catch (e) {}
           }
@@ -117,7 +129,6 @@ const AIChatbotPage = () => {
     } catch (err) {
       setMessages(prev => [...prev, { role: 'assistant', content: 'I encountered an error. Please try again.', error: true }]);
     } finally {
-      setIsStreaming(false);
     }
   };
 
@@ -149,15 +160,23 @@ const AIChatbotPage = () => {
               <button
                 key={tid}
                 onClick={() => selectThread(tid)}
-                className={`w-full text-left p-4 rounded-xl transition-all border duration-300 ${
+                className={`w-full text-left p-4 rounded-xl transition-all border duration-300 group flex items-center justify-between ${
                   currentThreadId === tid 
                     ? 'bg-primary text-white border-primary shadow-lg shadow-primary/20' 
                     : 'hover:bg-white/5 border-transparent text-gray-400'
                 }`}
               >
-                <div className="flex items-center space-x-3">
-                  <div className={`w-1.5 h-1.5 rounded-full ${currentThreadId === tid ? 'bg-white' : 'bg-gray-700'}`}></div>
+                <div className="flex items-center space-x-3 truncate">
+                  <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${currentThreadId === tid ? 'bg-white' : 'bg-gray-700'}`}></div>
                   <span className="truncate text-[10px] font-bold uppercase tracking-widest">{tid}</span>
+                </div>
+                <div 
+                  onClick={(e) => handleDeleteThread(e, tid)}
+                  className={`opacity-0 group-hover:opacity-100 p-1 hover:bg-red-500 rounded-md transition-all ${currentThreadId === tid ? 'text-white' : 'text-gray-500'}`}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" className="w-3 h-3">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                  </svg>
                 </div>
               </button>
             ))
@@ -214,11 +233,7 @@ const AIChatbotPage = () => {
                           ? 'bg-red-500/10 text-red-400 border border-red-500/20'
                           : 'bg-base-200 text-gray-300 border border-white/5 rounded-2xl'
                     }`}>
-                        {msg.content || (isStreaming && msg.role === 'assistant' && idx === messages.length - 1 ? (
-                            <div className="flex space-x-1.5 py-1.5">
-                                <span className="loading loading-dots loading-xs"></span>
-                            </div>
-                        ) : null)}
+                        {msg.content}
                     </div>
                 </div>
               ))}
@@ -230,7 +245,6 @@ const AIChatbotPage = () => {
         <footer className="p-4 bg-base-300/50 border-t border-white/5 backdrop-blur-md">
           <form onSubmit={handleSendMessage} className="max-w-4xl mx-auto flex gap-4 items-center">
             <input
-              disabled={isStreaming}
               type="text"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
@@ -238,10 +252,10 @@ const AIChatbotPage = () => {
               className="input input-bordered flex-grow bg-base-100 border-white/10 focus:border-primary transition-all rounded-xl h-14 text-lg"
             />
             <button 
-              disabled={isStreaming || !inputText.trim()}
+              disabled={!inputText.trim()}
               className="btn btn-primary h-14 px-8 rounded-xl font-bold uppercase tracking-widest shadow-lg shadow-primary/20"
             >
-              <span>{isStreaming ? 'Thinking...' : 'Analyze'}</span>
+              <span>Analyze</span>
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" className="w-5 h-5 ml-2">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
               </svg>

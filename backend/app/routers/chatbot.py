@@ -12,7 +12,6 @@ async def chat_query(request: Request, payload: dict = Body(...)):
     agent_executor = request.app.state.agent
     query = payload.get("query")
     thread_id = payload.get("thread_id", "default-thread")
-    stream = payload.get("stream", False)
     
     if not query:
         raise HTTPException(
@@ -23,50 +22,21 @@ async def chat_query(request: Request, payload: dict = Body(...)):
     config = {"configurable": {"thread_id": thread_id}}
     input_data = {"messages": [HumanMessage(content=query)]}
 
-    if stream:
-        from fastapi.responses import StreamingResponse
-        import json
+    from fastapi.responses import StreamingResponse
+    import json
 
-        async def stream_generator():
-            try:
-                # Use astream_events for granular token streaming
-                async for event in agent_executor.astream_events(input_data, config, version="v2"):
-                    kind = event["event"]
-                    # We want tokens from the final generation nodes
-                    if kind == "on_chat_model_stream":
-                        content = event["data"]["chunk"].content
-                        if content:
-                            yield f"data: {json.dumps({'content': content})}\n\n"
-                    
-                yield "data: [DONE]\n\n"
-            except Exception as e:
-                print(f"Streaming Error: {e}")
-                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+    async def stream_generator():
+        try:
+            async for msg, metadata in agent_executor.astream(input_data, config, stream_mode="messages"):
+                if msg.content:
+                    yield f"data: {json.dumps({'content': msg.content})}\n\n"
+                
+            yield "data: [DONE]\n\n"
+        except Exception as e:
+            print(f"Streaming Error: {e}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
-        return StreamingResponse(stream_generator(), media_type="text/event-stream")
-
-    # Fallback to sync invoke if not streaming
-    try:
-        from fastapi.concurrency import run_in_threadpool
-        result = await run_in_threadpool(agent_executor.invoke, input_data, config)
-        
-        # Get the last AI message
-        messages = result.get("messages", [])
-        final_response = "I'm sorry, I encountered an issue."
-        if messages and isinstance(messages[-1], AIMessage):
-            final_response = messages[-1].content
-        
-        return {
-            "response": final_response, 
-            "thread_id": thread_id
-        }
-        
-    except Exception as e:
-        print(f"Agentic Chatbot Error: {e}")
-        return {
-            "response": "I'm sorry, I am having trouble connecting right now.",
-            "thread_id": thread_id
-        }
+    return StreamingResponse(stream_generator(), media_type="text/event-stream")
 
 @router.get("/threads")
 async def list_chat_threads(request: Request):
@@ -98,9 +68,8 @@ async def get_chat_history(request: Request, thread_id: str):
     agent_executor = request.app.state.agent
     print(f"--- FETCHING HISTORY FOR THREAD: {thread_id} ---")
     try:
-        from fastapi.concurrency import run_in_threadpool
         config = {"configurable": {"thread_id": thread_id}}
-        state = await run_in_threadpool(agent_executor.get_state, config)
+        state = await agent_executor.aget_state(config)
         print(f"State retrieved: {True if state else False}")
         
         if not state or not state.values:
@@ -119,4 +88,37 @@ async def get_chat_history(request: Request, thread_id: str):
         }
     except Exception as e:
         print(f"Error fetching history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/thread/{thread_id}")
+async def delete_chat_thread(request: Request, thread_id: str):
+    """
+    Permanently deletes a chat thread and all its checkpoints from the database.
+    """
+    saver = request.app.state.saver
+    try:
+        print(f"--- DELETING THREAD: {thread_id} ---")
+        import traceback
+        
+        client = getattr(saver, 'client', None)
+        db_name = getattr(saver, 'db_name', 'langgraph_state')
+        
+        if not client and hasattr(saver, 'db'):
+            client = saver.db.client
+            db_name = saver.db.name
+            
+        if not client:
+            raise Exception("Could not find MongoDB client in weaver")
+            
+        db = client[db_name]
+        
+        res1 = db["checkpoints"].delete_many({"thread_id": thread_id})
+        res2 = db["writes"].delete_many({"thread_id": thread_id})
+        
+        print(f"Deleted {res1.deleted_count} checkpoints and {res2.deleted_count} writes.")
+        
+        return {"status": "success", "message": f"Thread {thread_id} deleted successfully."}
+    except Exception as e:
+        print(f"Error deleting thread: {e}")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

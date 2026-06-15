@@ -5,8 +5,6 @@ motor
 pydantic[email]
 python-jose[cryptography]
 passlib[bcrypt]
-python-socketio
-python-engineio
 python-multipart
 python-dotenv
 langchain

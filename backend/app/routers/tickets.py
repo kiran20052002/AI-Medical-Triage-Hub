@@ -187,7 +187,6 @@ async def accept_connection(id: str, user = Depends(require_user)):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
     
     if ticket.connection_status == "requested":
-        # Connection Accepted - Set channel ID for Socket.io room identification
         try:
             ticket.channel_id = f"ticket-{ticket.id}"
             ticket.connection_status = "accepted"
