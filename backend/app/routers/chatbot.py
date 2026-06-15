@@ -27,9 +27,13 @@ async def chat_query(request: Request, payload: dict = Body(...)):
 
     async def stream_generator():
         try:
-            async for msg, metadata in agent_executor.astream(input_data, config, stream_mode="messages"):
-                if msg.content:
-                    yield f"data: {json.dumps({'content': msg.content})}\n\n"
+            async for event in agent_executor.astream_events(input_data, config, version="v2"):
+                kind = event.get("event")
+                
+                if kind == "on_chat_model_stream":
+                    content = event.get("data", {}).get("chunk", {}).content
+                    if content:
+                        yield f"data: {json.dumps({'content': content})}\n\n"
                 
             yield "data: [DONE]\n\n"
         except Exception as e:
@@ -46,7 +50,6 @@ async def list_chat_threads(request: Request):
     saver = request.app.state.saver
     try:
         threads = []
-        # list() returns an async iterator of CheckpointTuple
         print("--- LISTING THREADS ---")
         async for checkpoint in saver.alist(config=None):
             print(f"Checkpoint found: {checkpoint.config}")
@@ -76,7 +79,6 @@ async def get_chat_history(request: Request, thread_id: str):
             return {"history": [], "thread_id": thread_id}
             
         messages = state.values.get("messages", [])
-        # Convert LangChain messages to a serializable format
         history = []
         for msg in messages:
             role = "user" if isinstance(msg, HumanMessage) else "assistant"

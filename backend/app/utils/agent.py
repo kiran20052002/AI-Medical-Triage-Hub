@@ -8,18 +8,18 @@ from app.utils.ai_utils import llm, generate_medical_response
 from app.utils.tools import search_medical_records
 from pydantic import BaseModel, Field
 
-# 1. State Definition
+
 class AgentState(TypedDict):
     query: str
     messages: Annotated[List[BaseMessage], operator.add]
-    documents: str
+    documents: List[str]
     retry_count: int
     response: str
-    mode: str # 'generate_direct', 'retrieve', 'rewrite', 'nosimilar'
+    mode: str # 'generate_direct', 'retrieve', 'rewrite', 'nosimilar', 'generate'
     hallucination_score: str # 'yes' or 'no'
     answer_score: str # 'yes' or 'no'
 
-# 2. Pydantic models for structured output
+
 class RouteQuery(BaseModel):
     """Route a user query to the most relevant datasource."""
     datasource: str = Field(
@@ -38,7 +38,7 @@ class GradeAnswer(BaseModel):
     """Binary score to assess if answer addresses question."""
     binary_score: str = Field(description="Answer addresses the question, 'yes', 'fallback', or 'rewrite'")
 
-# 3. Nodes
+
 async def decide_retrieval_node(state: AgentState):
     """
     Determines whether to retrieve from vector store or generate a direct response.
@@ -90,8 +90,18 @@ async def retriever_node(state: AgentState):
         query = messages[-1].content
         
     # Call the tool directly
-    docs = await search_medical_records.ainvoke(query)
-    return {"documents": docs, "retry_count": state.get("retry_count", 0)}
+    docs_str = await search_medical_records.ainvoke(query)
+    
+    # Parse the joined string back into individual document snippets
+    if "No matching medical records" in docs_str or "Error" in docs_str or "No highly relevant" in docs_str:
+        return {"documents": [], "retry_count": state.get("retry_count", 0)}
+        
+    # Split by the record separator
+    doc_list = [d.strip() for d in docs_str.split("--- Record") if d.strip()]
+    # Prepend the separator back if needed, or just keep the content
+    doc_list = ["--- Record " + d for d in doc_list]
+    
+    return {"documents": doc_list, "retry_count": state.get("retry_count", 0)}
 
 async def is_relevant_node(state: AgentState):
     print("--- IS RELEVANT NODE ---")
@@ -99,8 +109,9 @@ async def is_relevant_node(state: AgentState):
     query = messages[-1].content
     docs = state["documents"]
     
-    if "No matching medical records" in docs or "Error" in docs:
-        return {"mode": "nosimilar"}
+    if not docs:
+        retry_count = state.get("retry_count", 0)
+        return {"mode": "rewrite" if retry_count < 2 else "nosimilar"}
 
     system = """You are a grader assessing relevance of a retrieved document to a user question. \n 
     If the document contains medical information related to the user's symptoms or question, grade it as relevant. \n
@@ -108,15 +119,27 @@ async def is_relevant_node(state: AgentState):
     Give a binary score 'yes' or 'no' score to indicate whether the document is relevant to the question."""
     
     grader_llm = llm.with_structured_output(GradeDocuments)
-    grade = await grader_llm.ainvoke([
-        SystemMessage(content=system), 
-        HumanMessage(content=f"Question: {query} \n\n Document: {docs}")
-    ])
     
-    if grade.binary_score == "yes":
-        return {"mode": "generate"}
+    relevant_docs = []
+    for doc in docs:
+        grade = await grader_llm.ainvoke([
+            SystemMessage(content=system), 
+            HumanMessage(content=f"Question: {query} \n\n Document: {doc}")
+        ])
+        if grade.binary_score == "yes":
+            print(f"--- DOCUMENT RELEVANT ---")
+            relevant_docs.append(doc)
+        else:
+            print(f"--- DOCUMENT NOT RELEVANT (FILTERED) ---")
+    
+    if relevant_docs:
+        return {"mode": "generate", "documents": relevant_docs}
     else:
-        return {"mode": "nosimilar"}
+        # Instead of going straight to nosimilar, we try to rewrite the question
+        retry_count = state.get("retry_count", 0)
+        if retry_count < 2:
+            return {"mode": "rewrite", "documents": []}
+        return {"mode": "nosimilar", "documents": []}
 
 async def rewrite_question_node(state: AgentState):
     print("--- REWRITE QUESTION NODE ---")
@@ -134,7 +157,7 @@ async def rewrite_question_node(state: AgentState):
 async def generate_from_context_node(state: AgentState):
     print("--- GENERATE FROM CONTEXT NODE ---")
     messages = state["messages"]
-    docs = state["documents"]
+    docs = "\n\n".join(state["documents"])
     
     system_prompt = f"""You are a helpful and empathetic medical assistant.
     Your goal is to answer the patient's question based ONLY on the provided Context (which comes from a database of similar past medical cases).
@@ -163,14 +186,15 @@ async def is_sup_node(state: AgentState):
     Determines whether the generation is grounded in the document and not hallucinating.
     """
     print("--- IS SUP NODE ---")
-    docs = state["documents"]
+    docs = "\n\n".join(state["documents"])
     generation = state["response"]
     
     if "I couldn't find a similar case in our records" in generation:
         return {"hallucination_score": "no"} # Treat as "grounded" but leads to no_answer flow later
 
     system = """You are a grader assessing whether an LLM generation is grounded in / supported by a set of retrieved documents. \n 
-    Give a binary score 'yes' or 'no'. 'yes' means that the answer is grounded in / supported by the set of documents."""
+    Medical accuracy is critical. If the answer contains information NOT present in the provided documents (hallucinations), grade it as 'no'.
+    Give a binary score 'yes' or 'no'. 'yes' means that the answer is strictly grounded in / supported by the set of documents."""
     
     grader_llm = llm.with_structured_output(GradeHallucinations)
     grade = await grader_llm.ainvoke([
@@ -186,7 +210,7 @@ async def revise_answer_node(state: AgentState):
     """
     print("--- REVISE ANSWER NODE ---")
     messages = state["messages"]
-    docs = state["documents"]
+    docs = "\n\n".join(state["documents"])
     response = state["response"]
     
     system = f"""You are a medical response reviser. The previous response was found to have hallucinations or was not fully grounded in the context.
@@ -212,11 +236,10 @@ async def is_use_node(state: AgentState):
     generation = state["response"]
     retry_count = state.get("retry_count", 0)
 
-    system = """You are a grader assessing whether an answer addresses / resolves a user question. \n 
-    Give a score:
-    - 'yes': The answer resolves the question.
-    - 'rewrite': The answer is relevant but the query could be better to get a more precise answer.
-    - 'fallback': The answer does not resolve the question and further search is unlikely to help.
+    system = """You are a medical grader assessing whether an answer addresses / resolves a user question. \n 
+    - 'yes': The answer resolves the question accurately and safely.
+    - 'rewrite': The answer is partially relevant but lacks critical detail that might be found with a better search query.
+    - 'fallback': The answer does not resolve the question and further searching our records is unlikely to help (e.g. out-of-scope medical question).
     """
     
     grader_llm = llm.with_structured_output(GradeAnswer)
@@ -235,7 +258,6 @@ async def is_use_node(state: AgentState):
 def create_agent_graph(checkpointer=None):
     workflow = StateGraph(AgentState)
     
-    # Add Nodes
     workflow.add_node("decide_retrieval", decide_retrieval_node)
     workflow.add_node("generate_direct", generate_direct_node)
     workflow.add_node("retrieve", retriever_node)
@@ -247,7 +269,7 @@ def create_agent_graph(checkpointer=None):
     workflow.add_node("rewrite_question", rewrite_question_node)
     workflow.add_node("no_answer_found", no_answer_found_node)
     
-    # Define Edges
+
     workflow.set_entry_point("decide_retrieval")
     
     workflow.add_conditional_edges(
@@ -267,6 +289,7 @@ def create_agent_graph(checkpointer=None):
         lambda x: x["mode"],
         {
             "generate": "generate_from_context",
+            "rewrite": "rewrite_question",
             "nosimilar": "no_answer_found"
         }
     )
@@ -305,5 +328,4 @@ def create_agent_graph(checkpointer=None):
     
     workflow.add_edge("no_answer_found", END)
     
-    # Initialize Checkpointer if provided
     return workflow.compile(checkpointer=checkpointer)
