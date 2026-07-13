@@ -76,11 +76,6 @@ async def create_ticket(
     description: str = Form(...),
     user = Depends(require_user)
 ):
-    from app.utils.ml_utils import verify_medical_query
-    
-    validation = await verify_medical_query(f"Title: {title}\nDescription: {description}")
-    if validation and not validation.get("is_valid", True):
-        return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"error": "invalid_ticket"})
 
     ticket = Ticket(
         title=title,

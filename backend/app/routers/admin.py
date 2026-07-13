@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Request, Response, UploadFile, File, HTTPException
 from app.dependencies import get_current_user
 from app.models import Ticket, Patient, Doctor, Report
+from app.utils.ai_utils import process_medical_pdf
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -37,3 +38,17 @@ async def admin_dashboard(request: Request, current_user = Depends(get_current_u
     }
 
 
+@router.post("/upload-medical-pdf")
+async def upload_medical_pdf(file: UploadFile = File(...), current_user = Depends(get_current_user)):
+    if not current_user or current_user.role != "admin":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    if not file.filename.endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+        
+    try:
+        file_bytes = await file.read()
+        result = await process_medical_pdf(file_bytes, file.filename)
+        return {"status": "success", "detail": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

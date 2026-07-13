@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const ChatWidget = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -62,6 +64,103 @@ const ChatWidget = () => {
     setShowSessions(false);
   };
 
+  const handleApproveAction = async (idx, action, tid) => {
+    setMessages(prev => {
+      const copy = [...prev];
+      copy[idx] = { ...copy[idx], approvalLoading: true };
+      return copy;
+    });
+
+    try {
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+      const response = await fetch(`${baseUrl}/chatbot/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ thread_id: tid, action: action }),
+        credentials: 'include',
+      });
+
+      if (!response.ok) throw new Error('Action failed');
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let assistantMessage = '';
+      let isFirstChunk = true;
+
+      setMessages(prev => {
+        const copy = [...prev];
+        copy[idx] = { 
+          role: 'assistant', 
+          content: 'Processing...', 
+          requiresApproval: false 
+        };
+        return copy;
+      });
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.substring(6);
+            if (dataStr === '[DONE]') continue;
+
+            try {
+              const data = JSON.parse(dataStr);
+              if (data.status === 'requires_approval') {
+                setMessages(prev => {
+                  const copy = [...prev];
+                  copy[idx] = { 
+                    role: 'assistant', 
+                    content: '', 
+                    requiresApproval: true, 
+                    ticketDetails: data.ticket_details 
+                  };
+                  return copy;
+                });
+                return;
+              }
+
+              if (data.content) {
+                if (isFirstChunk) {
+                  assistantMessage = data.content;
+                  isFirstChunk = false;
+                } else {
+                  assistantMessage += data.content;
+                }
+                setMessages(prev => {
+                  const copy = [...prev];
+                  copy[idx] = { 
+                    role: 'assistant', 
+                    content: assistantMessage,
+                    requiresApproval: false 
+                  };
+                  return copy;
+                });
+              }
+            } catch (e) {}
+          }
+        }
+      }
+      loadThreads();
+    } catch (err) {
+      setMessages(prev => {
+        const copy = [...prev];
+        copy[idx] = { 
+          role: 'assistant', 
+          content: 'I encountered an error processing your approval. Please try again.', 
+          error: true,
+          requiresApproval: false
+        };
+        return copy;
+      });
+    }
+  };
+
   const handleSendMessage = async (e) => {
     e.preventDefault();
     const text = inputText.trim();
@@ -76,14 +175,14 @@ const ChatWidget = () => {
       const response = await fetch(`${baseUrl}/chatbot/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ query: text, thread_id: currentThreadId, stream: true }),
       });
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let assistantMessage = '';
-
-      setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
+      let isFirstChunk = true;
 
       while (true) {
         const { value, done } = await reader.read();
@@ -98,13 +197,35 @@ const ChatWidget = () => {
             if (dataStr === '[DONE]') continue;
             try {
               const data = JSON.parse(dataStr);
-              if (data.content) {
-                assistantMessage += data.content;
+              if (data.status === 'requires_approval') {
                 setMessages(prev => {
-                  const last = prev[prev.length - 1];
-                  const others = prev.slice(0, -1);
-                  return [...others, { ...last, content: assistantMessage }];
+                  const others = isFirstChunk ? prev : prev.slice(0, -1);
+                  return [
+                    ...others,
+                    { 
+                      role: 'assistant', 
+                      content: '', 
+                      requiresApproval: true, 
+                      ticketDetails: data.ticket_details 
+                    }
+                  ];
                 });
+                return;
+              }
+
+              if (data.content) {
+                if (isFirstChunk) {
+                  assistantMessage = data.content;
+                  setMessages(prev => [...prev, { role: 'assistant', content: assistantMessage }]);
+                  isFirstChunk = false;
+                } else {
+                  assistantMessage += data.content;
+                  setMessages(prev => {
+                    const last = prev[prev.length - 1];
+                    const others = prev.slice(0, -1);
+                    return [...others, { ...last, content: assistantMessage }];
+                  });
+                }
               }
             } catch (e) {}
           }
@@ -171,13 +292,57 @@ const ChatWidget = () => {
                  const isMe = msg.role === 'user';
                  return (
                   <div key={idx} className={`chat ${isMe ? 'chat-end' : 'chat-start'}`}>
-                    <div className={`chat-bubble text-[13px] font-medium leading-relaxed ${
-                      isMe 
-                        ? 'bg-primary text-white rounded-2xl shadow-lg shadow-primary/10' 
-                        : 'bg-base-200 text-gray-300 border border-white/5 rounded-2xl'
-                    }`}>
-                      {msg.content}
-                    </div>
+                    {msg.requiresApproval ? (
+                      <div className="chat-bubble bg-base-200 border border-warning/20 rounded-2xl p-4 max-w-sm shadow-xl">
+                        <div className="flex items-center gap-2 text-warning mb-2">
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" className="w-5 h-5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                          </svg>
+                          <h3 className="font-bold text-xs uppercase tracking-wider text-white">Approval Required</h3>
+                        </div>
+                        <p className="text-[11px] text-gray-400 mb-3">Create support ticket:</p>
+                        <div className="bg-base-300/50 rounded-lg p-3 border border-white/5 space-y-2 mb-4">
+                          <div>
+                            <span className="text-[9px] font-black uppercase tracking-widest text-gray-500">Title</span>
+                            <p className="text-xs font-semibold text-white mt-0.5">{msg.ticketDetails?.title || 'No Title'}</p>
+                          </div>
+                          <div>
+                            <span className="text-[9px] font-black uppercase tracking-widest text-gray-500">Description</span>
+                            <p className="text-[11px] font-medium text-gray-300 mt-1 leading-relaxed line-clamp-3">{msg.ticketDetails?.description || 'No Description'}</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            disabled={msg.approvalLoading}
+                            onClick={() => handleApproveAction(idx, 'approve', currentThreadId)}
+                            className="btn btn-primary btn-xs flex-1 font-bold rounded-lg uppercase tracking-wider shadow-lg shadow-primary/20"
+                          >
+                            {msg.approvalLoading ? <span className="loading loading-spinner loading-xs"></span> : 'Approve'}
+                          </button>
+                          <button
+                            disabled={msg.approvalLoading}
+                            onClick={() => handleApproveAction(idx, 'reject', currentThreadId)}
+                            className="btn btn-ghost btn-xs flex-1 font-bold rounded-lg border border-white/10 uppercase tracking-wider hover:bg-red-500/10 hover:text-red-400"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className={`chat-bubble text-[13px] font-medium leading-relaxed ${
+                        isMe 
+                          ? 'bg-primary text-white rounded-2xl shadow-lg shadow-primary/10' 
+                          : msg.error
+                            ? 'bg-red-500/10 text-red-400 border border-red-500/20'
+                            : 'bg-base-200 text-gray-300 border border-white/5 rounded-2xl'
+                      }`}>
+                        <div className="prose prose-sm prose-invert max-w-none">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {msg.content}
+                          </ReactMarkdown>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}

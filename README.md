@@ -1,10 +1,10 @@
-# AI Medical Triage Hub
+# AI Medical Hub
 
 An intelligent healthcare support platform that streamlines patient-doctor interactions using AI-powered triage and real-time chat.
 
 ## Features
 
-- **AI Triage & Analysis**: Automatically analyzes patient tickets to estimate urgency and suggest relevant specialists.
+- **AI Analysis**: Automatically analyzes patient tickets to estimate urgency and suggest relevant specialists.
 
 - **Clinical Reports(SOAP)**: Generates professional medical summaries for admins and doctors using the SOAP format:
   - **Subjective (S)**: Patient's complaints, history, and reported symptoms.
@@ -16,11 +16,16 @@ An intelligent healthcare support platform that streamlines patient-doctor inter
 
 - **Smart Routing**: Directs tickets to the appropriate personnel based on AI analysis.
 
-- **Agentic RAG Chatbot**: A state-of-art medical assistant powered by **LangGraph**.
-  - **Real-time Streaming**: Uses `astream_events` (v2) to provide a fluid, token-by-token chat experience for patients.
-  - **Thread-Based Persistence**: Leverages an **Async SQL Checkpointer** (SQLite) to automatically save and resume conversation states across sessions.
+- **Agentic Chatbots (Dual Agents)**: State-of-the-art medical assistants powered by **LangGraph**, tailored to user roles:
+  - **Patient Agent**: Provides personalized medical assistance and symptom checking for patients.
+  - **Doctor Agent**: A specialized assistant for doctors equipped with tools to:
+    - Find actionable/closable tickets (Smart Close)
+    - Autonomously generate clinical reports (SOAP)
+    - Resolve tickets directly via chat commands
+  - **Real-time Streaming**: Uses **Server-Sent Events (SSE)** to provide token-by-token chat experience.
+  - **Thread-Based Persistence**: Uses LangGraph's **MongoDBSaver** checkpointer to automatically save and resume conversation states across sessions, securely mapped to individual users.
   - **Fault Tolerance**: The persistence layer ensures that even if the server restarts or crashes, the agentic workflow can resume execution from the exact last checkpoint without losing state progress.
-  - **Short-Term Memory (STM)**: Maintains granular conversation context within a thread, allowing the agent to remember medical queries and previous advice in real-time.
+  - **Short-Term Memory (STM)**: Maintains granular conversation context within a thread, allowing agents to remember medical queries and previous instructions in real-time.
 
 ## User Roles & Capabilities
 
@@ -47,7 +52,6 @@ An intelligent healthcare support platform that streamlines patient-doctor inter
 - **Backend**: FastAPI (Python)
 - **Database**: MongoDB (Beanie ODM)
 - **AI/LLM**: Groq (Llama 3), Google Gemini (Embeddings), **LangGraph (Agentic Orchestration)**
-- **Local ML/NLP**: Scikit-Learn (MultinomialNB, RandomForest), NLTK (PorterStemmer, Stopwords)
 - **Real-time**: Socket.io
 - **Auth**: JWT (Stateless)
 

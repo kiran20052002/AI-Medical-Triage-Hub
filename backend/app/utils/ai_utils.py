@@ -1,4 +1,9 @@
 import os
+import io
+import pymupdf
+import asyncio
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from app.models import MedicalDocumentParent, MedicalDocumentChunk
 from typing import List, Dict, Optional
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
@@ -25,12 +30,20 @@ if gemini_api_key:
     except Exception as e:
         print(f"Warning: Failed to init Gemini Client: {e}")
 
+from langchain_google_genai import ChatGoogleGenerativeAI
+
 llm = None
 if groq_api_key:
     llm = ChatGroq(
         temperature=0,
-        model_name="llama-3.1-8b-instant",
+        model_name="openai/gpt-oss-20b",
         groq_api_key=groq_api_key
+    )
+elif gemini_api_key:
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-pro",
+        temperature=0,
+        google_api_key=gemini_api_key
     )
 
 
@@ -205,3 +218,57 @@ async def generate_soap_note(title: str, description: str, chat_history: str) ->
     except Exception as e:
         print(f"SOAP Generation Failed: {e}")
         return None
+
+async def process_medical_pdf(file_bytes: bytes, filename: str):
+    """
+    Parses a PDF, chunks it using a parent-child strategy, generates embeddings for child chunks,
+    and stores them in MongoDB.
+    """
+    
+    doc = pymupdf.open(stream=file_bytes, filetype="pdf")
+    full_text = ""
+    for page in doc:
+        full_text += page.get_text() + "\n"
+        
+    doc.close()
+
+    if not full_text.strip():
+        raise ValueError("No text could be extracted from the PDF.")
+
+    
+    parent_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=2000,
+        chunk_overlap=200,
+        length_function=len,
+        is_separator_regex=False,
+    )
+    parent_texts = parent_splitter.split_text(full_text)
+
+
+    child_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=400,
+        chunk_overlap=50,
+        length_function=len,
+        is_separator_regex=False,
+    )
+
+    for i, p_text in enumerate(parent_texts):
+        parent_doc = MedicalDocumentParent(
+            title=f"{filename} - Part {i+1}",
+            content=p_text
+        )
+        await parent_doc.insert()
+
+        child_texts = child_splitter.split_text(p_text)
+        
+        for c_text in child_texts:
+            embedding = await generate_embedding(c_text)
+            
+            child_doc = MedicalDocumentChunk(
+                parent_id=parent_doc.id,
+                content=c_text,
+                embedding=embedding
+            )
+            await child_doc.insert()
+            
+    return {"message": f"Successfully processed {len(parent_texts)} parent chunks and their child chunks."}

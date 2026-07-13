@@ -1,8 +1,8 @@
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
 from app.config.db import init_db
 from app.utils.agent import create_agent_graph
+from app.utils.doctor_agent import create_doctor_agent_graph
 from langgraph.checkpoint.mongodb import MongoDBSaver
 from pymongo import MongoClient
 import os
@@ -39,25 +39,25 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup
+app = FastAPI()
+
+@app.on_event("startup")
+async def startup():
+
     await init_db()
     
-    # Initialize checkpointer and agent
     sync_client = MongoClient(os.getenv("MONGO_URI"))
     saver = MongoDBSaver(sync_client, db_name="langgraph_state")
-    
     app.state.saver = saver
     app.state.agent = create_agent_graph(checkpointer=saver)
-    
-    yield
-    
-    # Shutdown
-    sync_client.close()
-    
+    app.state.doctor_agent = create_doctor_agent_graph(checkpointer=saver)
+    app.state.sync_client = sync_client
 
-app = FastAPI(lifespan=lifespan)
+@app.on_event("shutdown")
+async def shutdown():
+    if hasattr(app.state, 'sync_client'):
+        app.state.sync_client.close()
+
 
 @app.websocket("/ws/{ticket_id}")
 async def websocket_endpoint(websocket: WebSocket, ticket_id: str):
@@ -122,7 +122,7 @@ app.include_router(admin.router)
 
 @app.get("/")
 async def home(request: Request):
-    return {"message": "Welcome to the Medical Triage Hub API!"}
+    return {"message": "Welcome to the Medical Hub API!"}
 
 if __name__ == "__main__":
     import uvicorn

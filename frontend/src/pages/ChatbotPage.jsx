@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const AIChatbotPage = () => {
   const [threads, setThreads] = useState([]);
@@ -64,6 +66,105 @@ const AIChatbotPage = () => {
     }
   };
 
+  const handleApproveAction = async (idx, action, tid) => {
+    // Disable buttons to prevent double click
+    setMessages(prev => {
+      const copy = [...prev];
+      copy[idx] = { ...copy[idx], approvalLoading: true };
+      return copy;
+    });
+
+    try {
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+      const response = await fetch(`${baseUrl}/chatbot/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ thread_id: tid, action: action }),
+        credentials: 'include',
+      });
+
+      if (!response.ok) throw new Error('Action failed');
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let assistantMessage = '';
+      let isFirstChunk = true;
+
+      // Update message status to streaming
+      setMessages(prev => {
+        const copy = [...prev];
+        copy[idx] = { 
+          role: 'assistant', 
+          content: 'Processing...', 
+          requiresApproval: false 
+        };
+        return copy;
+      });
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.substring(6);
+            if (dataStr === '[DONE]') continue;
+
+            try {
+              const data = JSON.parse(dataStr);
+              if (data.status === 'requires_approval') {
+                setMessages(prev => {
+                  const copy = [...prev];
+                  copy[idx] = { 
+                    role: 'assistant', 
+                    content: '', 
+                    requiresApproval: true, 
+                    ticketDetails: data.ticket_details 
+                  };
+                  return copy;
+                });
+                return;
+              }
+
+              if (data.content) {
+                if (isFirstChunk) {
+                  assistantMessage = data.content;
+                  isFirstChunk = false;
+                } else {
+                  assistantMessage += data.content;
+                }
+                setMessages(prev => {
+                  const copy = [...prev];
+                  copy[idx] = { 
+                    role: 'assistant', 
+                    content: assistantMessage,
+                    requiresApproval: false 
+                  };
+                  return copy;
+                });
+              }
+            } catch (e) {}
+          }
+        }
+      }
+      loadThreads();
+    } catch (err) {
+      setMessages(prev => {
+        const copy = [...prev];
+        copy[idx] = { 
+          role: 'assistant', 
+          content: 'I encountered an error processing your approval. Please try again.', 
+          error: true,
+          requiresApproval: false
+        };
+        return copy;
+      });
+    }
+  };
+
   const handleSendMessage = async (e) => {
     e.preventDefault();
     const text = inputText.trim();
@@ -84,6 +185,7 @@ const AIChatbotPage = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: text, thread_id: tid }),
+        credentials: 'include',
       });
 
       if (!response.ok) throw new Error('Query failed');
@@ -107,6 +209,22 @@ const AIChatbotPage = () => {
 
             try {
               const data = JSON.parse(dataStr);
+              if (data.status === 'requires_approval') {
+                setMessages(prev => {
+                  const others = isFirstChunk ? prev : prev.slice(0, -1);
+                  return [
+                    ...others,
+                    { 
+                      role: 'assistant', 
+                      content: '', 
+                      requiresApproval: true, 
+                      ticketDetails: data.ticket_details 
+                    }
+                  ];
+                });
+                return;
+              }
+
               if (data.content) {
                 if (isFirstChunk) {
                   assistantMessage = data.content;
@@ -128,7 +246,6 @@ const AIChatbotPage = () => {
       loadThreads();
     } catch (err) {
       setMessages(prev => [...prev, { role: 'assistant', content: 'I encountered an error. Please try again.', error: true }]);
-    } finally {
     }
   };
 
@@ -197,7 +314,7 @@ const AIChatbotPage = () => {
               <h1 className="text-xl font-bold text-white tracking-tight leading-none uppercase">Health Assistant</h1>
               <div className="flex items-center gap-1.5 mt-2">
                 <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">Medical Triage Flow</span>
+                <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">Medical Flow</span>
               </div>
             </div>
           </div>
@@ -210,10 +327,10 @@ const AIChatbotPage = () => {
                 <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center mb-6">
                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="gray" className="w-12 h-12">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
-                    </svg>
+                     </svg>
                 </div>
-              <h2 className="text-3xl font-bold text-white uppercase tracking-tighter">Virtual Triage</h2>
-              <p className="text-gray-400 mt-2 max-w-sm text-sm font-medium">Describe your health concern. I'll assist with a preliminary assessment and system triage.</p>
+              <h2 className="text-3xl font-bold text-white uppercase tracking-tighter">Virtual Assistant</h2>
+              <p className="text-gray-400 mt-2 max-w-sm text-sm font-medium">Describe your health concern. I'll assist with a preliminary assessment and system routing.</p>
             </div>
           ) : isLoadingHistory ? (
             <div className="h-full flex items-center justify-center">
@@ -226,15 +343,57 @@ const AIChatbotPage = () => {
                     <div className="chat-header text-[10px] font-black uppercase tracking-tighter text-gray-500 mb-1">
                       {msg.role === 'user' ? 'Patient' : 'AI Assistant'}
                     </div>
-                    <div className={`chat-bubble text-sm font-medium leading-relaxed max-w-[90%] md:max-w-2xl ${
-                      msg.role === 'user' 
-                        ? 'bg-primary text-white rounded-2xl shadow-lg shadow-primary/10' 
-                        : msg.error 
-                          ? 'bg-red-500/10 text-red-400 border border-red-500/20'
-                          : 'bg-base-200 text-gray-300 border border-white/5 rounded-2xl'
-                    }`}>
-                        {msg.content}
-                    </div>
+                    {msg.requiresApproval ? (
+                      <div className="chat-bubble bg-base-200 border border-warning/20 rounded-2xl p-6 max-w-md shadow-xl">
+                        <div className="flex items-center gap-3 text-warning mb-3">
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" className="w-6 h-6">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                          </svg>
+                          <h3 className="font-bold text-sm uppercase tracking-wider text-white">Ticket Approval Required</h3>
+                        </div>
+                        <p className="text-xs text-gray-400 mb-4">The assistant wants to create a support ticket with these details:</p>
+                        <div className="bg-base-300/50 rounded-xl p-4 border border-white/5 space-y-3 mb-5">
+                          <div>
+                            <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">Title</span>
+                            <p className="text-sm font-semibold text-white mt-0.5">{msg.ticketDetails?.title || 'No Title'}</p>
+                          </div>
+                          <div>
+                            <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">Description</span>
+                            <p className="text-xs font-medium text-gray-300 mt-1 leading-relaxed whitespace-pre-wrap">{msg.ticketDetails?.description || 'No Description'}</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-3">
+                          <button
+                            disabled={msg.approvalLoading}
+                            onClick={() => handleApproveAction(idx, 'approve', currentThreadId)}
+                            className="btn btn-primary btn-sm flex-1 font-bold rounded-xl uppercase tracking-wider shadow-lg shadow-primary/20"
+                          >
+                            {msg.approvalLoading ? <span className="loading loading-spinner loading-xs"></span> : 'Approve'}
+                          </button>
+                          <button
+                            disabled={msg.approvalLoading}
+                            onClick={() => handleApproveAction(idx, 'reject', currentThreadId)}
+                            className="btn btn-ghost btn-sm flex-1 font-bold rounded-xl border border-white/10 uppercase tracking-wider hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/20"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className={`chat-bubble whitespace-pre-wrap text-sm font-medium leading-relaxed max-w-[90%] md:max-w-2xl ${
+                        msg.role === 'user' 
+                          ? 'bg-primary text-white rounded-2xl shadow-lg shadow-primary/10' 
+                          : msg.error 
+                            ? 'bg-red-500/10 text-red-400 border border-red-500/20'
+                            : 'bg-base-200 text-gray-300 border border-white/5 rounded-2xl'
+                      }`}>
+                          <div className="prose prose-sm prose-invert max-w-none">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {msg.content}
+                            </ReactMarkdown>
+                          </div>
+                      </div>
+                    )}
                 </div>
               ))}
               <div ref={messagesEndRef} />

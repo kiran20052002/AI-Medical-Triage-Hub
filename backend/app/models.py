@@ -39,6 +39,22 @@ class Report(Document):
     class Settings(BaseConfig.Config):
         name = "reports"
 
+class MedicalDocumentParent(Document):
+    title: str
+    content: str
+    created_at: datetime = Field(default_factory=datetime.now)
+
+    class Settings(BaseConfig.Config):
+        name = "medical_document_parents"
+
+class MedicalDocumentChunk(Document):
+    parent_id: PydanticObjectId = Field(alias="parentId")
+    content: str
+    embedding: List[float] = Field(default_factory=list)
+
+    class Settings(BaseConfig.Config):
+        name = "medical_document_chunks"
+
 class Ticket(Document):
     title: str
     description: str

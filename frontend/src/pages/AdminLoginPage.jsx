@@ -111,7 +111,7 @@ const AdminLoginPage = () => {
             </button>
           </div>
 
-          <div className="divider opacity-10 text-[10px] font-black uppercase tracking-[0.3em] my-6">Medical Triage Hub System</div>
+          <div className="divider opacity-10 text-[10px] font-black uppercase tracking-[0.3em] my-6">Medical Hub System</div>
 
           <div className="text-center">
             <Link to="/auth/login" className="link link-hover text-primary text-sm hover:text-white transition-colors uppercase font-black tracking-widest">← Back to Login</Link>

@@ -111,7 +111,7 @@ const DoctorLoginPage = () => {
             </button>
           </div>
 
-          <div className="divider opacity-10 text-[10px] font-black uppercase tracking-[0.3em] my-6">Medical Triage Hub</div>
+          <div className="divider opacity-10 text-[10px] font-black uppercase tracking-[0.3em] my-6">Medical Hub</div>
 
           <div className="text-center">
             <Link to="/auth/login" className="text-primary text-sm hover:text-white hover:underline transition-colors uppercase font-black tracking-widest">Not a Doctor? Patient Login</Link>

@@ -12,6 +12,7 @@ const AdminDashboard = () => {
   const [activeTab, setActiveTab] = useState('users');
   const [search, setSearch] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -28,6 +29,28 @@ const AdminDashboard = () => {
     }
   };
 
+  const handleFileUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    try {
+      setIsUploading(true);
+      await api.post('/admin/upload-medical-pdf', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      alert('PDF uploaded and processed successfully.');
+    } catch (err) {
+      console.error(err);
+      alert('Failed to upload PDF.');
+    } finally {
+      setIsUploading(false);
+      event.target.value = null; // Reset input
+    }
+  };
+
   const filteredUsers = data.all_users.filter(u => 
     u.email.toLowerCase().includes(search.toLowerCase())
   );
@@ -35,7 +58,15 @@ const AdminDashboard = () => {
   return (
     <div className="bg-base-200 min-h-screen pb-20">
       <div className="max-w-6xl mx-auto pt-8 px-4 animate-in fade-in duration-700">
-        <h2 className="text-3xl font-bold text-white mb-8 tracking-tight">System Oversight</h2>
+        <div className="flex justify-between items-center mb-8">
+          <h2 className="text-3xl font-bold text-white tracking-tight">System Oversight</h2>
+          <div>
+            <label className={`btn btn-primary shadow-lg shadow-primary/20 ${isUploading ? 'loading' : ''}`}>
+              {isUploading ? 'Uploading...' : 'Upload Medical PDF'}
+              <input type="file" accept=".pdf" className="hidden" onChange={handleFileUpload} disabled={isUploading} />
+            </label>
+          </div>
+        </div>
         
         {/* Stats Section */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">

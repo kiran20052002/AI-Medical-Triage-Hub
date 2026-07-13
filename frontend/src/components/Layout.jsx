@@ -26,7 +26,7 @@ const Layout = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                 </svg>
               </div>
-              <span className="text-xl font-bold text-white tracking-tight">MedTriage Hub</span>
+              <span className="text-xl font-bold text-white tracking-tight">Med Hub</span>
             </Link>
           </div>
 
@@ -36,7 +36,7 @@ const Layout = () => {
               {user && (
                 <>
                   <Link to={getDashboardLink()} className={`btn btn-ghost btn-sm rounded-lg hover:bg-white/5 ${location.pathname.includes('dashboard') ? 'bg-white/10 text-white' : ''}`}>Dashboard</Link>
-                  {user.role === 'patient' && (
+                  {(user.role === 'patient' || user.role === 'doctor') && (
                     <Link to="/chatbot" className={`btn btn-ghost btn-sm rounded-lg hover:bg-white/5 ${location.pathname === '/chatbot' ? 'bg-white/10 text-white' : ''}`}>AI Assistant</Link>
                   )}
                   <div className="divider divider-horizontal mx-1"></div>
@@ -64,7 +64,7 @@ const Layout = () => {
                 {user && (
                   <>
                     <li><Link to={getDashboardLink()}>Dashboard</Link></li>
-                    {user.role === 'patient' && <li><Link to="/chatbot">AI Assistant</Link></li>}
+                    {(user.role === 'patient' || user.role === 'doctor') && <li><Link to="/chatbot">AI Assistant</Link></li>}
                     <div className="divider my-1"></div>
                   </>
                 )}
@@ -87,7 +87,7 @@ const Layout = () => {
         <Outlet />
       </main>
 
-      {user?.role === 'patient' && location.pathname === '/' && <ChatWidget />}
+      {user && (user.role === 'doctor' || user.role === 'patient') && <ChatWidget />}
 
       {/* Footer - Only on Home Page */}
       {location.pathname === '/' && (
@@ -99,7 +99,7 @@ const Layout = () => {
                 </svg>
             </div>
             <p className="font-bold">
-              Medical Triage Hub <br />
+              Medical Hub <br />
               <span className="font-normal text-gray-500">Intelligent Healthcare Coordination</span>
             </p> 
             <p className="text-gray-600 text-xs">© {new Date().getFullYear()} - All rights reserved</p>

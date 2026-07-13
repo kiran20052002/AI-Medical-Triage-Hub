@@ -12,10 +12,11 @@ langchain-groq
 langchain-google-genai
 bcrypt==4.0.1
 google-genai
-joblib
-scikit-learn==1.6.1
-nltk
 langgraph
 langchain-mongodb
 langgraph-checkpoint-mongodb
 jsonpatch
+httpx
+PyMuPDF
+langchain-text-splitters  
+ 
