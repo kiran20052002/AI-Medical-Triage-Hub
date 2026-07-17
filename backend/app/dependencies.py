@@ -27,8 +27,8 @@ async def get_current_user(request: Request, response: Response):
                         value=new_access_token, 
                         httponly=True, 
                         path="/",
-                        samesite="lax",
-                        secure=False
+                        samesite="none",
+                        secure=True
                     )
             else:
                 if db_token:
