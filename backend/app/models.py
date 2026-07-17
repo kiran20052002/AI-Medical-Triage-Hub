@@ -50,7 +50,6 @@ class MedicalDocumentParent(Document):
 class MedicalDocumentChunk(Document):
     parent_id: PydanticObjectId = Field(alias="parentId")
     content: str
-    embedding: List[float] = Field(default_factory=list)
 
     class Settings(BaseConfig.Config):
         name = "medical_document_chunks"

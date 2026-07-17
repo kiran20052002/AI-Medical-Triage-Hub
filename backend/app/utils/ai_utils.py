@@ -11,12 +11,24 @@ from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.messages import SystemMessage, HumanMessage
 from pydantic import BaseModel, Field
+from pinecone import Pinecone
 
 load_dotenv()
 
 
 gemini_api_key = os.getenv("GEMINI_API_KEY")
 groq_api_key = os.getenv("GROQ_API_KEY")
+pinecone_api_key = os.getenv("PINECONE_API_KEY")
+pinecone_index_name = os.getenv("PINECONE_INDEX_NAME")
+
+pc = None
+pinecone_index = None
+if pinecone_api_key and pinecone_index_name:
+    try:
+        pc = Pinecone(api_key=pinecone_api_key)
+        pinecone_index = pc.Index(pinecone_index_name)
+    except Exception as e:
+        print(f"Warning: Failed to init Pinecone: {e}")
 
 
 
@@ -261,14 +273,27 @@ async def process_medical_pdf(file_bytes: bytes, filename: str):
 
         child_texts = child_splitter.split_text(p_text)
         
+        pinecone_vectors = []
         for c_text in child_texts:
             embedding = await generate_embedding(c_text)
             
             child_doc = MedicalDocumentChunk(
                 parent_id=parent_doc.id,
-                content=c_text,
-                embedding=embedding
+                content=c_text
             )
             await child_doc.insert()
+            
+            if pinecone_index:
+                pinecone_vectors.append({
+                    "id": str(child_doc.id),
+                    "values": embedding,
+                    "metadata": {
+                        "parentId": str(parent_doc.id),
+                        "content": c_text
+                    }
+                })
+                
+        if pinecone_index and pinecone_vectors:
+            pinecone_index.upsert(vectors=pinecone_vectors)
             
     return {"message": f"Successfully processed {len(parent_texts)} parent chunks and their child chunks."}

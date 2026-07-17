@@ -8,6 +8,7 @@ passlib[bcrypt]
 python-multipart
 python-dotenv
 langchain
+pinecone
 langchain-groq
 langchain-google-genai
 bcrypt==4.0.1

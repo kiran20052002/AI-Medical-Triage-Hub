@@ -32,7 +32,15 @@ rag_system_prompt = """You are a meticulous medical research agent. Your goal is
 4. **Check Usefulness**: Use the usefulness checking tool to ensure your drafted answer actually resolves the user's question. 
    - If it returns 'rewrite', and you have not exceeded your 2 search limit, try searching again with a better query. 
    - If it returns 'fallback' or you have hit your search limit, output the standard fallback message.
-   
+
+OUTPUT FORMAT:
+If you find relevant documents and successfully draft an answer, you MUST append a "Sources:" section at the very end of your final response listing the exact names of the source documents (found in the 'Source:' tag of the retrieved results). 
+Example format:
+[Your Answer Here]
+
+Sources:
+- DocumentName.pdf - Part 1
+
 Only once your drafted answer passes all checks ('yes' for relevance, 'yes' for support, and 'yes' for usefulness) should you output the final answer to the user.
 """
 
@@ -53,6 +61,18 @@ async def call_rag_agent(state: AgentState):
     
     response = await rag_agent_app.ainvoke({"messages": clean_messages})
     rag_final_text = response["messages"][-1].content
+    
+    # Manually extract sources and append them if the LLM forgot
+    sources = set()
+    import re
+    for msg in response["messages"]:
+        if isinstance(msg, ToolMessage) and msg.name == "search_medical_knowledge":
+            matches = re.findall(r"--- Source: (.*?) ---", msg.content)
+            for m in matches:
+                sources.add(m)
+                
+    if sources and "Sources:" not in rag_final_text:
+        rag_final_text += "\n\n**Sources:**\n" + "\n".join([f"- {s}" for s in sources])
     
     # We MUST fulfill the main agent's tool call to avoid INVALID_CHAT_HISTORY errors
     tool_call_id = last_message.tool_calls[0]["id"]
@@ -77,6 +97,8 @@ async def agent_node(state: AgentState):
     
     system = """You are a helpful and empathetic medical assistant.
 You have access to several tools.
+CRITICAL: If the user asks ANY medical question or describes ANY symptoms, you MUST use the search_medical_knowledge tool to search for medical documents. Do NOT answer from your own knowledge.
+
 IMPORTANT: When you use the find_nearby_facility tool, you MUST explicitly list the names and addresses of the facilities returned by the tool in your final response. Do not just output a generic disclaimer.
 
 If no tools are needed (e.g. greetings, general conversation, or follow-up clarifications), write a direct answer.

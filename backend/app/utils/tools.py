@@ -2,7 +2,7 @@ from typing import List, Optional
 from langchain_core.tools import tool
 from langchain_core.messages import SystemMessage, HumanMessage
 from pydantic import BaseModel, Field
-from app.utils.ai_utils import generate_embedding, llm, analyze_ticket_chat_ai, generate_closure_summary, generate_soap_note
+from app.utils.ai_utils import generate_embedding, llm, analyze_ticket_chat_ai, generate_closure_summary, generate_soap_note, pinecone_index
 from app.models import Report, Ticket, Patient, ChatMessage, MedicalDocumentChunk, MedicalDocumentParent
 from beanie import PydanticObjectId
 from langgraph.types import interrupt
@@ -19,29 +19,16 @@ async def search_medical_knowledge(query: str) -> str:
     try:
         embedding = await generate_embedding(query)
 
-        pipeline = [
-            {
-                "$vectorSearch": {
-                    "index": "vector_index",
-                    "path": "embedding",
-                    "queryVector": embedding,
-                    "numCandidates": 10,
-                    "limit": 3
-                }
-            },
-            {
-                "$project": {
-                    "_id": 1,
-                    "parentId": 1, 
-                    "content": 1,
-                    "score": { "$meta": "vectorSearchScore" }
-                }
-            }
-        ]
+        if not pinecone_index:
+            return "Vector database is not configured."
+            
+        query_response = pinecone_index.query(
+            vector=embedding,
+            top_k=3,
+            include_metadata=True
+        )
         
-        collection = MedicalDocumentChunk.get_pymongo_collection()
-        cursor = collection.aggregate(pipeline)
-        results = await cursor.to_list(length=3)
+        results = query_response.get("matches", [])
         
         if not results:
             return "No matching medical knowledge found for this query."
@@ -52,9 +39,10 @@ async def search_medical_knowledge(query: str) -> str:
         for res in results:
             score = res.get("score", 0)
             if score >= 0.6:
-                parent_id = res.get("parentId")
+                metadata = res.get("metadata", {})
+                parent_id = metadata.get("parentId")
                 if parent_id and str(parent_id) not in parent_ids_fetched:
-                    parent_doc = await MedicalDocumentParent.get(parent_id)
+                    parent_doc = await MedicalDocumentParent.get(PydanticObjectId(parent_id))
                     if parent_doc:
                         formatted_results.append(
                             f"--- Source: {parent_doc.title} ---\n{parent_doc.content}\n"

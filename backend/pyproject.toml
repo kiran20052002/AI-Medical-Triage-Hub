@@ -29,4 +29,6 @@ dependencies = [
     "python-socketio>=5.16.2",
     "scikit-learn==1.6.1",
     "uvicorn[standard]>=0.40.0",
+    "pinecone>=3.0.0",
+    "httpx>=0.28.1",
 ]
