@@ -5,13 +5,14 @@ from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
 from app.utils.ai_utils import llm
 from app.utils.tools import analyze_closable_tickets, close_ticket, generate_report, list_tickets
+from langchain_core.runnables.config import RunnableConfig
 
 class DoctorAgentState(TypedDict):
     messages: Annotated[List[BaseMessage], operator.add]
 
 doctor_tools = [analyze_closable_tickets, close_ticket, generate_report, list_tickets]
 
-async def doctor_agent_node(state: DoctorAgentState):
+async def doctor_agent_node(state: DoctorAgentState, config: RunnableConfig):
     print("--- DOCTOR AGENT NODE ---")
     messages = state["messages"]
     
@@ -33,7 +34,7 @@ CRITICAL INSTRUCTIONS:
     has_system = any(isinstance(m, SystemMessage) for m in messages)
     msgs_to_run = messages if has_system else [SystemMessage(content=system)] + messages
     
-    response = await llm_with_tools.ainvoke(msgs_to_run)
+    response = await llm_with_tools.ainvoke(msgs_to_run, config)
     return {"messages": [response]}
 
 def route_after_doctor_agent(state: DoctorAgentState):

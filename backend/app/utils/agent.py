@@ -6,6 +6,7 @@ from langgraph.prebuilt import ToolNode, create_react_agent
 from langchain_core.tools import tool
 from app.utils.ai_utils import llm
 from app.utils.tools import tools, create_ticket, list_tickets, emergency, search_medical_knowledge, check_relevance, check_support, check_usefulness, find_nearby_facility
+from langchain_core.runnables.config import RunnableConfig
 
 
 class AgentState(TypedDict):
@@ -50,7 +51,7 @@ rag_agent_app = create_react_agent(
     prompt=rag_system_prompt
 )
 
-async def call_rag_agent(state: AgentState):
+async def call_rag_agent(state: AgentState, config: RunnableConfig):
     print("--- CALL RAG SUB-AGENT ---")
     messages = state["messages"]
     last_message = messages[-1]
@@ -59,7 +60,7 @@ async def call_rag_agent(state: AgentState):
     # so the RAG agent starts clean from the user's prompt.
     clean_messages = messages[:-1]
     
-    response = await rag_agent_app.ainvoke({"messages": clean_messages})
+    response = await rag_agent_app.ainvoke({"messages": clean_messages}, config)
     rag_final_text = response["messages"][-1].content
     
     # Manually extract sources and append them if the LLM forgot
@@ -89,7 +90,7 @@ async def call_rag_agent(state: AgentState):
 
 
 
-async def agent_node(state: AgentState):
+async def agent_node(state: AgentState, config: RunnableConfig):
     print("--- AGENT NODE ---")
     messages = state["messages"]
     
@@ -109,7 +110,7 @@ CRITICAL: If a tool execution returns a cancellation or rejection response (for 
     has_system = any(isinstance(m, SystemMessage) for m in messages)
     msgs_to_run = messages if has_system else [SystemMessage(content=system)] + messages
     
-    response = await llm_with_tools.ainvoke(msgs_to_run)
+    response = await llm_with_tools.ainvoke(msgs_to_run, config)
     return {"messages": [response]}
 
 
