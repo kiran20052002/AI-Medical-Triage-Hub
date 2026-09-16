@@ -109,6 +109,18 @@ const ChatWidget = () => {
     });
   };
 
+  const toggleReportSelection = (idx, ticketId) => {
+    setMessages(prev => {
+      const copy = [...prev];
+      const current = copy[idx].selectedReportIds || [];
+      const next = current.includes(ticketId)
+        ? current.filter(id => id !== ticketId)
+        : [...current, ticketId];
+      copy[idx] = { ...copy[idx], selectedReportIds: next };
+      return copy;
+    });
+  };
+
   const handleApproveAction = async (idx, action, tid, selectedIds) => {
     setMessages(prev => {
       const copy = [...prev];
@@ -140,7 +152,8 @@ const ChatWidget = () => {
           role: 'assistant',
           content: 'Processing...',
           requiresApproval: false,
-          requiresClosureApproval: false
+          requiresClosureApproval: false,
+          requiresReportApproval: false
         };
         return copy;
       });
@@ -188,6 +201,21 @@ const ChatWidget = () => {
                 return;
               }
 
+              if (data.status === 'requires_report_approval') {
+                setMessages(prev => {
+                  const copy = [...prev];
+                  copy[idx] = {
+                    role: 'assistant',
+                    content: '',
+                    requiresReportApproval: true,
+                    reportDetails: data.report_details,
+                    selectedReportIds: (data.report_details?.candidates || []).map(c => c.id)
+                  };
+                  return copy;
+                });
+                return;
+              }
+
               if (data.content) {
                 if (isFirstChunk) {
                   assistantMessage = data.content;
@@ -201,7 +229,8 @@ const ChatWidget = () => {
                     role: 'assistant',
                     content: assistantMessage,
                     requiresApproval: false,
-                    requiresClosureApproval: false
+                    requiresClosureApproval: false,
+                    requiresReportApproval: false
                   };
                   return copy;
                 });
@@ -218,7 +247,8 @@ const ChatWidget = () => {
           content: 'I encountered an error processing your approval. Please try again.',
           error: true,
           requiresApproval: false,
-          requiresClosureApproval: false
+          requiresClosureApproval: false,
+          requiresReportApproval: false
         };
         return copy;
       });
@@ -323,6 +353,23 @@ const ChatWidget = () => {
                     requiresClosureApproval: true,
                     closureDetails: data.closure_details,
                     selectedClosureIds: (data.closure_details?.candidates || []).map(c => c.id)
+                  }
+                ];
+              });
+              return;
+            }
+
+            if (data.status === 'requires_report_approval') {
+              setMessages(prev => {
+                const others = isFirstChunk ? prev : prev.slice(0, -1);
+                return [
+                  ...others,
+                  {
+                    role: 'assistant',
+                    content: '',
+                    requiresReportApproval: true,
+                    reportDetails: data.report_details,
+                    selectedReportIds: (data.report_details?.candidates || []).map(c => c.id)
                   }
                 ];
               });
@@ -472,6 +519,49 @@ const ChatWidget = () => {
                             className="btn btn-primary btn-xs flex-1 font-bold rounded-lg uppercase tracking-wider shadow-lg shadow-primary/20"
                           >
                             {msg.approvalLoading ? <span className="loading loading-spinner loading-xs"></span> : `Close (${(msg.selectedClosureIds || []).length})`}
+                          </button>
+                          <button
+                            disabled={msg.approvalLoading}
+                            onClick={() => handleApproveAction(idx, 'reject', currentThreadId)}
+                            className="btn btn-ghost btn-xs flex-1 font-bold rounded-lg border border-white/10 uppercase tracking-wider hover:bg-red-500/10 hover:text-red-400"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : msg.requiresReportApproval ? (
+                      <div className="chat-bubble bg-base-200 border border-warning/20 rounded-2xl p-4 max-w-sm shadow-xl">
+                        <div className="flex items-center gap-2 text-warning mb-2">
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" className="w-5 h-5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" />
+                          </svg>
+                          <h3 className="font-bold text-xs uppercase tracking-wider text-white">Confirm Reports</h3>
+                        </div>
+                        <p className="text-[11px] text-gray-400 mb-3">Select closed tickets to generate a report for:</p>
+                        <div className="space-y-2 mb-4 max-h-56 overflow-y-auto">
+                          {(msg.reportDetails?.candidates || []).map(c => (
+                            <label key={c.id} className="flex items-start gap-2 bg-base-300/50 rounded-lg p-2.5 border border-white/5 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                className="checkbox checkbox-primary checkbox-xs mt-0.5"
+                                checked={(msg.selectedReportIds || []).includes(c.id)}
+                                disabled={msg.approvalLoading}
+                                onChange={() => toggleReportSelection(idx, c.id)}
+                              />
+                              <div className="min-w-0">
+                                <p className="text-xs font-semibold text-white">{c.title}</p>
+                                <p className="text-[10px] text-gray-400 mt-0.5 leading-relaxed line-clamp-2">{c.reasoning}</p>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            disabled={msg.approvalLoading || (msg.selectedReportIds || []).length === 0}
+                            onClick={() => handleApproveAction(idx, 'approve', currentThreadId, msg.selectedReportIds || [])}
+                            className="btn btn-primary btn-xs flex-1 font-bold rounded-lg uppercase tracking-wider shadow-lg shadow-primary/20"
+                          >
+                            {msg.approvalLoading ? <span className="loading loading-spinner loading-xs"></span> : `Generate (${(msg.selectedReportIds || []).length})`}
                           </button>
                           <button
                             disabled={msg.approvalLoading}

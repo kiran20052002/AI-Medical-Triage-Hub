@@ -325,7 +325,7 @@ async def analyze_closable_tickets(config: RunnableConfig) -> str:
         ).to_list()
 
         if not tickets:
-            return "CRITICAL INSTRUCTION: Relay this message to the doctor exactly. You have no open tickets."
+            return "You have no open tickets."
 
         closable_tickets = []
         for ticket in tickets:
@@ -347,9 +347,9 @@ async def analyze_closable_tickets(config: RunnableConfig) -> str:
                 })
 
         if not closable_tickets:
-            return "CRITICAL INSTRUCTION: Relay this message to the doctor exactly. No tickets are currently recommended for closure based on AI analysis of the chat history."
+            return "No tickets are currently recommended for closure based on AI analysis of the chat history."
     except Exception as e:
-        return f"CRITICAL INSTRUCTION: Relay this exact error message to the doctor, verbatim, do not paraphrase or soften it. Error analyzing tickets: {str(e)}"
+        return f"Error analyzing tickets: {str(e)}"
 
     approval = interrupt({
         "action": "approve_ticket_closures",
@@ -388,6 +388,78 @@ async def analyze_closable_tickets(config: RunnableConfig) -> str:
     return "\n".join(formatted)
 
 @tool
+async def analyze_reportable_tickets(config: RunnableConfig) -> str:
+    """
+    Lists tickets assigned to the doctor that are already closed ("completed") but do NOT yet have a
+    report generated (report generation moves a ticket to "Report Sent"). Then pauses and asks the doctor
+    to explicitly pick which of these closed-but-unreported tickets should have a report generated, via a
+    human-in-the-loop approval UI. Only the tickets the doctor selects get a report generated — nothing is
+    generated automatically. Use this when the doctor asks to find closed tickets without a report, or to
+    generate reports for closed tickets.
+    """
+    user_id = config.get("configurable", {}).get("user_id")
+    if not user_id:
+        return "Error: You must be logged in as a doctor to use this tool."
+
+    try:
+        tickets = await Ticket.find(
+            Ticket.assigned_to == PydanticObjectId(user_id),
+            Ticket.status == "completed"
+        ).to_list()
+
+        if not tickets:
+            return "You have no closed tickets awaiting a report."
+
+        candidates = [
+            {
+                "id": str(ticket.id),
+                "title": ticket.title,
+                "reasoning": "Closed, no report generated yet."
+            }
+            for ticket in tickets
+        ]
+    except Exception as e:
+        return f"Error listing reportable tickets: {str(e)}"
+
+    approval = interrupt({
+        "action": "approve_report_generation",
+        "candidates": candidates
+    })
+
+    if not approval or not approval.get("approved", False):
+        return "Report generation cancelled by doctor. No reports were generated."
+
+    selected_ids = approval.get("selected_ids") or []
+    candidate_ids = {c["id"] for c in candidates}
+    valid_selected_ids = [sid for sid in selected_ids if sid in candidate_ids]
+
+    if not valid_selected_ids:
+        return "No tickets were selected for report generation. No reports were generated."
+
+    report_results = []
+    for ticket_id in valid_selected_ids:
+        try:
+            ticket = await Ticket.get(ticket_id)
+            if not ticket or str(ticket.assigned_to) != user_id:
+                report_results.append(f"- Ticket {ticket_id}: Error, not found or not authorized.")
+                continue
+            if ticket.status != "completed":
+                report_results.append(f"- Ticket {ticket_id}: Skipped, no longer awaiting a report.")
+                continue
+
+            await _generate_report_record(ticket, user_id)
+            report_results.append(f"- Ticket {ticket_id} ({ticket.title}): Report generated and sent.")
+        except Exception as e:
+            report_results.append(f"- Ticket {ticket_id}: Error generating report - {str(e)}")
+
+    formatted = [
+        "CRITICAL INSTRUCTION: Show this summary exactly as provided.",
+        f"Generated reports for {len(valid_selected_ids)} ticket(s) as confirmed by the doctor:"
+    ]
+    formatted.extend(report_results)
+    return "\n".join(formatted)
+
+@tool
 async def close_ticket(ticket_id: str, config: RunnableConfig) -> str:
     """
     Closes a specific ticket (by ID, as explicitly requested by the doctor) and adds an AI-generated summary
@@ -398,10 +470,13 @@ async def close_ticket(ticket_id: str, config: RunnableConfig) -> str:
         user_id = config.get("configurable", {}).get("user_id")
         ticket = await Ticket.get(ticket_id)
         if not ticket:
-            return f"Error: Ticket {ticket_id} not found."
+            return f"Ticket {ticket_id} not found. Double check the ticket ID (call list_tickets if you're not sure of it)."
 
         if str(ticket.assigned_to) != user_id:
-            return f"Error: You are not authorized to close Ticket {ticket_id}."
+            return f"You are not authorized to close Ticket {ticket_id} - it is not assigned to you."
+
+        if ticket.status in ("completed", "Report Sent"):
+            return f"Ticket {ticket_id} is already closed (status: {ticket.status}). No action was taken."
 
         await _close_ticket_record(ticket)
         return f"Ticket {ticket_id} successfully closed. Summary added."
@@ -412,16 +487,24 @@ async def close_ticket(ticket_id: str, config: RunnableConfig) -> str:
 @tool
 async def generate_report(ticket_id: str, config: RunnableConfig) -> str:
     """
-    Generates a SOAP note report for a specific ticket and sends it to the admin.
+    Generates a SOAP note report for a specific ticket (by ID, as explicitly requested by the doctor) and
+    sends it to the admin. Use this only for a single ticket the doctor has directly named, not for bulk
+    report generation (use analyze_reportable_tickets for bulk, which handles doctor confirmation itself).
     """
     try:
         user_id = config.get("configurable", {}).get("user_id")
         ticket = await Ticket.get(ticket_id)
         if not ticket:
-            return f"Error: Ticket {ticket_id} not found."
+            return f"Ticket {ticket_id} not found. Double check the ticket ID (call list_tickets if you're not sure of it)."
+
+        if str(ticket.assigned_to) != user_id:
+            return f"You are not authorized to generate a report for Ticket {ticket_id} - it is not assigned to you."
+
+        if ticket.status == "Report Sent":
+            return f"Ticket {ticket_id} already has a report generated. No action was taken."
 
         if ticket.status != "completed":
-            return f"Error: Ticket {ticket_id} must be closed before generating a report."
+            return f"Ticket {ticket_id} must be closed before generating a report (current status: {ticket.status})."
 
         await _generate_report_record(ticket, user_id)
 

@@ -129,6 +129,8 @@ async def chat_query(request: Request, payload: dict = Body(...), user = Depends
                             yield f"data: {json.dumps({'status': 'requires_approval', 'ticket_details': val})}\n\n"
                         elif isinstance(val, dict) and val.get("action") == "approve_ticket_closures":
                             yield f"data: {json.dumps({'status': 'requires_closure_approval', 'closure_details': val})}\n\n"
+                        elif isinstance(val, dict) and val.get("action") == "approve_report_generation":
+                            yield f"data: {json.dumps({'status': 'requires_report_approval', 'report_details': val})}\n\n"
 
             yield "data: [DONE]\n\n"
         except Exception as e:
@@ -182,7 +184,7 @@ async def chat_approve(request: Request, payload: dict = Body(...), user = Depen
         raise HTTPException(status_code=400, detail="Could not identify the task to resume.")
 
     approved = action == "approve"
-    if pending_action == "approve_ticket_closures":
+    if pending_action in ("approve_ticket_closures", "approve_report_generation"):
         resume_payload = {"approved": approved, "selected_ids": selected_ids or []}
     else:
         resume_payload = {"approved": approved}
@@ -208,6 +210,8 @@ async def chat_approve(request: Request, payload: dict = Body(...), user = Depen
                             yield f"data: {json.dumps({'status': 'requires_approval', 'ticket_details': val})}\n\n"
                         elif isinstance(val, dict) and val.get("action") == "approve_ticket_closures":
                             yield f"data: {json.dumps({'status': 'requires_closure_approval', 'closure_details': val})}\n\n"
+                        elif isinstance(val, dict) and val.get("action") == "approve_report_generation":
+                            yield f"data: {json.dumps({'status': 'requires_report_approval', 'report_details': val})}\n\n"
 
             yield "data: [DONE]\n\n"
         except Exception as e:
@@ -259,6 +263,7 @@ async def get_chat_history(request: Request, thread_id: str, user = Depends(requ
         
         pending_interrupt = None
         pending_closure_interrupt = None
+        pending_report_interrupt = None
         if state.next:
             tasks = getattr(state, "tasks", [])
             for t in tasks:
@@ -270,6 +275,9 @@ async def get_chat_history(request: Request, thread_id: str, user = Depends(requ
                         break
                     if isinstance(val, dict) and val.get("action") == "approve_ticket_closures":
                         pending_closure_interrupt = val
+                        break
+                    if isinstance(val, dict) and val.get("action") == "approve_report_generation":
+                        pending_report_interrupt = val
                         break
         
         history = []
@@ -305,6 +313,13 @@ async def get_chat_history(request: Request, thread_id: str, user = Depends(requ
                                 is_pending_closure = True
                                 break
 
+                    is_pending_report = False
+                    if pending_report_interrupt:
+                        for tc in msg.tool_calls:
+                            if tc.get("name") == "analyze_reportable_tickets":
+                                is_pending_report = True
+                                break
+
                     if is_pending:
                         history.append({
                             "role": "assistant",
@@ -318,6 +333,13 @@ async def get_chat_history(request: Request, thread_id: str, user = Depends(requ
                             "content": "",
                             "requiresClosureApproval": True,
                             "closureDetails": pending_closure_interrupt
+                        })
+                    elif is_pending_report:
+                        history.append({
+                            "role": "assistant",
+                            "content": "",
+                            "requiresReportApproval": True,
+                            "reportDetails": pending_report_interrupt
                         })
                 else:
                     
