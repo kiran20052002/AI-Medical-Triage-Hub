@@ -117,7 +117,7 @@ async def list_tickets(config: RunnableConfig) -> str:
             if not tickets:
                 return "You have no tickets currently assigned to you."
             formatted = [
-                "CRITICAL INSTRUCTION: You MUST show the following list to the user verbatim in your response. Do not summarize it. Preserve all markdown formatting.",
+                "CRITICAL INSTRUCTION: You MUST show the following list to the user exactly as provided in your response. Do not summarize it. Preserve all markdown formatting.",
                 "Here are the tickets currently assigned to you:"
             ]
             for t in tickets:
@@ -128,7 +128,7 @@ async def list_tickets(config: RunnableConfig) -> str:
             if not tickets:
                 return "You have not submitted any support tickets yet."
             formatted = [
-                "CRITICAL INSTRUCTION: You MUST show the following list to the user verbatim in your response. Do not summarize it. Preserve all markdown formatting.",
+                "CRITICAL INSTRUCTION: You MUST show the following list to the user exactly as provided in your response. Do not summarize it. Preserve all markdown formatting.",
                 "Here are your submitted tickets:"
             ]
             for t in tickets:
@@ -233,7 +233,7 @@ async def find_nearby_facility(location: str, facility_type: str = "hospital") -
             return f"I couldn't find any {facility_type}s near '{location}'."
             
         formatted = [
-            "CRITICAL INSTRUCTION: You MUST show the following list to the user verbatim in your response. Do not summarize it. Preserve all markdown formatting.", 
+            "CRITICAL INSTRUCTION: You MUST show the following list to the user exactly as provided in your response. Do not summarize it. Preserve all markdown formatting.", 
             f"Here are the nearest {facility_type}s near {location}:\n\n"
         ]
         for place in results:
@@ -292,7 +292,7 @@ async def analyze_closable_tickets(config: RunnableConfig) -> str:
         if not closable_tickets:
             return "No tickets are currently recommended for closure based on AI analysis."
 
-        formatted = ["CRITICAL INSTRUCTION: Show this list verbatim.", "Here are the tickets recommended for closure:"]
+        formatted = ["CRITICAL INSTRUCTION: Show this list exactly as provided.", "Here are the tickets recommended for closure:"]
         for t in closable_tickets:
             formatted.append(f"- Ticket ID: {t['id']} | Title: {t['title']} | Reasoning: {t['reasoning']}")
         return "\n".join(formatted)
@@ -353,22 +353,22 @@ async def generate_report(ticket_id: str, config: RunnableConfig) -> str:
             messages = await ChatMessage.find(ChatMessage.ticket_id == PydanticObjectId(ticket.id)).sort("created_at").limit(100).to_list()
             chat_transcript = "\\n".join([f"{m.sender_name}: {m.text}" for m in messages])
 
-        triage_content = await generate_soap_note(ticket.title, ticket.description, chat_transcript)
-        if not triage_content:
-            triage_content = {
+        content = await generate_soap_note(ticket.title, ticket.description, chat_transcript)
+        if not content:
+            content = {
                 "subjective": f"Complaint: {ticket.title}\\n{ticket.description}",
                 "objective": "None reported",
                 "assessment": "Pending AI analysis",
                 "plan": "Follow up required"
             }
 
-        formatted_report = f"**SUBJECTIVE**: {triage_content.get('subjective', '')}\\n**OBJECTIVE**: {triage_content.get('objective', '')}\\n**ASSESSMENT**: {triage_content.get('assessment', '')}\\n**PLAN**: {triage_content.get('plan', '')}"
+        formatted_report = f"**SUBJECTIVE**: {content.get('subjective', '')}\\n**OBJECTIVE**: {content.get('objective', '')}\\n**ASSESSMENT**: {content.get('assessment', '')}\\n**PLAN**: {content.get('plan', '')}"
 
-        triage_content['ticket_id'] = str(ticket.id)
-        triage_content['doctor_id'] = str(user_id)
+        content['ticket_id'] = str(ticket.id)
+        content['doctor_id'] = str(user_id)
 
         report = Report(
-            content=triage_content,
+            content=content,
             formatted_report=formatted_report,
             ticket_id=str(ticket.id)
         )
@@ -377,8 +377,7 @@ async def generate_report(ticket_id: str, config: RunnableConfig) -> str:
         ticket.status = "Report Sent"
         await ticket.save()
 
-        # Trigger embedding asynchronously
-        asyncio.create_task(generate_embedding(f"Subjective: {triage_content.get('subjective')}\\nObjective: {triage_content.get('objective')}\\nAssessment: {triage_content.get('assessment')}"))
+        # asyncio.create_task(generate_embedding(f"Subjective: {content.get('subjective')}\\nObjective: {content.get('objective')}\\nAssessment: {content.get('assessment')}"))
 
         return f"Report generated and sent for ticket {ticket_id} successfully."
 

@@ -18,6 +18,5 @@ langchain-mongodb
 langgraph-checkpoint-mongodb
 jsonpatch
 httpx
-PyMuPDF
+pypdf
 langchain-text-splitters  
- 

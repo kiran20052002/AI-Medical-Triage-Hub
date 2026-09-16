@@ -14,6 +14,8 @@ An intelligent healthcare support platform that streamlines patient-doctor inter
 
 - **Real-time Chat**: Integrated messaging between patients and doctors using **Socket.io**
 
+- **Streaming AI Responses**: Delivers real-time, token-by-token AI chatbot responses using HTTP Server-Sent Events (SSE) for a fast and highly responsive user experience.
+
 - **Smart Routing**: Directs tickets to the appropriate personnel based on AI analysis.
 
 - **Agentic Chatbots (Dual Agents)**: State-of-the-art medical assistants powered by **LangGraph**, tailored to user roles:

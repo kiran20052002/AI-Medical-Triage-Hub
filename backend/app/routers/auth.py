@@ -28,7 +28,7 @@ async def create_tokens_and_set_cookies(response: Response, user_id: str, email:
         value=access_token, 
         httponly=True, 
         path="/",
-        samesite="none",
+        samesite="strict",
         secure=True
     )
     response.set_cookie(
@@ -37,7 +37,7 @@ async def create_tokens_and_set_cookies(response: Response, user_id: str, email:
         httponly=True, 
         max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600, 
         path="/",
-        samesite="none",
+        samesite="strict",
         secure=True
     )
     return response

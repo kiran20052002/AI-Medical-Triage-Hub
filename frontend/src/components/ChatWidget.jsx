@@ -3,26 +3,38 @@ import { Link } from 'react-router-dom';
 import api from '../services/api';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useAuth } from '../context/AuthContext';
+
+const WELCOME_MESSAGE = { role: 'assistant', content: 'Hello! I am your medical assistant. How can I help you today?' };
 
 const ChatWidget = () => {
+  const { user } = useAuth();
+  const threadStorageKey = `widget_thread_id:${user?.id}`;
   const [isOpen, setIsOpen] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
   const [showSessions, setShowSessions] = useState(false);
-  const [currentThreadId, setCurrentThreadId] = useState(() => {
-    return localStorage.getItem('widget_thread_id') || `widget-${Math.random().toString(36).substring(2, 11)}`;
-  });
-  const [messages, setMessages] = useState([{ role: 'assistant', content: 'Hello! I am your medical assistant. How can I help you today?' }]);
+  const [currentThreadId, setCurrentThreadId] = useState(() => localStorage.getItem(`widget_thread_id:${user?.id}`));
+  const [messages, setMessages] = useState([WELCOME_MESSAGE]);
   const [inputText, setInputText] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [threads, setThreads] = useState([]);
+  const hasLoadedHistoryRef = useRef(false);
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
-    localStorage.setItem('widget_thread_id', currentThreadId);
-    if (isOpen && messages.length <= 1) {
-      loadHistory();
+    if (currentThreadId) {
+      localStorage.setItem(threadStorageKey, currentThreadId);
+    } else {
+      localStorage.removeItem(threadStorageKey);
     }
-  }, [currentThreadId, isOpen]);
+  }, [currentThreadId, threadStorageKey]);
+
+  useEffect(() => {
+    if (isOpen && currentThreadId && !hasLoadedHistoryRef.current) {
+      hasLoadedHistoryRef.current = true;
+      loadHistory(currentThreadId);
+    }
+  }, [isOpen, currentThreadId]);
 
   useEffect(() => {
     scrollToBottom();
@@ -32,11 +44,18 @@ const ChatWidget = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const loadHistory = async () => {
+  const createThread = async () => {
+    const res = await api.post('/chatbot/threads');
+    const threadId = res.data.thread_id;
+    setCurrentThreadId(threadId);
+    return threadId;
+  };
+
+  const loadHistory = async (tid) => {
     try {
-      const res = await api.get(`/chatbot/history/${encodeURIComponent(currentThreadId)}`);
+      const res = await api.get(`/chatbot/history/${encodeURIComponent(tid)}`);
       if (res.data.history && res.data.history.length > 0) {
-        setMessages([{ role: 'assistant', content: 'Hello! I am your medical assistant. How can I help you today?' }, ...res.data.history]);
+        setMessages([WELCOME_MESSAGE, ...res.data.history]);
       }
     } catch (e) {
       console.error('Failed to load history');
@@ -57,11 +76,25 @@ const ChatWidget = () => {
     if (!showSessions) loadThreads();
   };
 
-  const startNewChat = () => {
-    const newTid = `widget-${Math.random().toString(36).substring(2, 11)}`;
-    setCurrentThreadId(newTid);
-    setMessages([{ role: 'assistant', content: 'Hello! I am your medical assistant. How can I help you today?' }]);
+  const startNewChat = async () => {
+    try {
+      const tid = await createThread();
+      hasLoadedHistoryRef.current = true;
+      setMessages([WELCOME_MESSAGE]);
+      setShowSessions(false);
+      loadThreads();
+      return tid;
+    } catch (e) {
+      console.error('Failed to create chat session');
+    }
+  };
+
+  const selectThread = async (tid) => {
+    setCurrentThreadId(tid);
+    hasLoadedHistoryRef.current = true;
+    setMessages([WELCOME_MESSAGE]);
     setShowSessions(false);
+    await loadHistory(tid);
   };
 
   const handleApproveAction = async (idx, action, tid) => {
@@ -89,10 +122,10 @@ const ChatWidget = () => {
 
       setMessages(prev => {
         const copy = [...prev];
-        copy[idx] = { 
-          role: 'assistant', 
-          content: 'Processing...', 
-          requiresApproval: false 
+        copy[idx] = {
+          role: 'assistant',
+          content: 'Processing...',
+          requiresApproval: false
         };
         return copy;
       });
@@ -114,11 +147,11 @@ const ChatWidget = () => {
               if (data.status === 'requires_approval') {
                 setMessages(prev => {
                   const copy = [...prev];
-                  copy[idx] = { 
-                    role: 'assistant', 
-                    content: '', 
-                    requiresApproval: true, 
-                    ticketDetails: data.ticket_details 
+                  copy[idx] = {
+                    role: 'assistant',
+                    content: '',
+                    requiresApproval: true,
+                    ticketDetails: data.ticket_details
                   };
                   return copy;
                 });
@@ -134,10 +167,10 @@ const ChatWidget = () => {
                 }
                 setMessages(prev => {
                   const copy = [...prev];
-                  copy[idx] = { 
-                    role: 'assistant', 
+                  copy[idx] = {
+                    role: 'assistant',
                     content: assistantMessage,
-                    requiresApproval: false 
+                    requiresApproval: false
                   };
                   return copy;
                 });
@@ -146,13 +179,12 @@ const ChatWidget = () => {
           }
         }
       }
-      loadThreads();
     } catch (err) {
       setMessages(prev => {
         const copy = [...prev];
-        copy[idx] = { 
-          role: 'assistant', 
-          content: 'I encountered an error processing your approval. Please try again.', 
+        copy[idx] = {
+          role: 'assistant',
+          content: 'I encountered an error processing your approval. Please try again.',
           error: true,
           requiresApproval: false
         };
@@ -166,75 +198,105 @@ const ChatWidget = () => {
     const text = inputText.trim();
     if (!text || isStreaming) return;
 
+    let tid = currentThreadId;
+    if (!tid) {
+      try {
+        tid = await createThread();
+      } catch (e) {
+        setMessages(prev => [...prev, { role: 'assistant', content: 'Could not start a chat session. Please try again.', error: true }]);
+        return;
+      }
+    }
+
     setMessages(prev => [...prev, { role: 'user', content: text }]);
     setInputText('');
     setIsStreaming(true);
 
     try {
-      const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
-      const response = await fetch(`${baseUrl}/chatbot/query`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ query: text, thread_id: currentThreadId, stream: true }),
-      });
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let assistantMessage = '';
-      let isFirstChunk = true;
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const dataStr = line.substring(6);
-            if (dataStr === '[DONE]') continue;
-            try {
-              const data = JSON.parse(dataStr);
-              if (data.status === 'requires_approval') {
-                setMessages(prev => {
-                  const others = isFirstChunk ? prev : prev.slice(0, -1);
-                  return [
-                    ...others,
-                    { 
-                      role: 'assistant', 
-                      content: '', 
-                      requiresApproval: true, 
-                      ticketDetails: data.ticket_details 
-                    }
-                  ];
-                });
-                return;
-              }
-
-              if (data.content) {
-                if (isFirstChunk) {
-                  assistantMessage = data.content;
-                  setMessages(prev => [...prev, { role: 'assistant', content: assistantMessage }]);
-                  isFirstChunk = false;
-                } else {
-                  assistantMessage += data.content;
-                  setMessages(prev => {
-                    const last = prev[prev.length - 1];
-                    const others = prev.slice(0, -1);
-                    return [...others, { ...last, content: assistantMessage }];
-                  });
-                }
-              }
-            } catch (e) {}
-          }
+      await sendQueryToThread(tid, text);
+    } catch (err) {
+      if (err?.status === 404) {
+        try {
+          const freshTid = await createThread();
+          await sendQueryToThread(freshTid, text);
+          return;
+        } catch (retryErr) {
+          // fall through to generic error below
         }
       }
-    } catch (err) {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Issue connecting. Try again.', error: true }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: 'I encountered an error. Please try again.', error: true }]);
     } finally {
       setIsStreaming(false);
+    }
+  };
+
+  const sendQueryToThread = async (tid, text) => {
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+    const response = await fetch(`${baseUrl}/chatbot/query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: text, thread_id: tid }),
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const error = new Error('Query failed');
+      error.status = response.status;
+      throw error;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let assistantMessage = '';
+    let isFirstChunk = true;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value);
+      const lines = chunk.split('\n');
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const dataStr = line.substring(6);
+          if (dataStr === '[DONE]') continue;
+
+          try {
+            const data = JSON.parse(dataStr);
+            if (data.status === 'requires_approval') {
+              setMessages(prev => {
+                const others = isFirstChunk ? prev : prev.slice(0, -1);
+                return [
+                  ...others,
+                  {
+                    role: 'assistant',
+                    content: '',
+                    requiresApproval: true,
+                    ticketDetails: data.ticket_details
+                  }
+                ];
+              });
+              return;
+            }
+
+            if (data.content) {
+              if (isFirstChunk) {
+                assistantMessage = data.content;
+                setMessages(prev => [...prev, { role: 'assistant', content: assistantMessage }]);
+                isFirstChunk = false;
+              } else {
+                assistantMessage += data.content;
+                setMessages(prev => {
+                  const last = prev[prev.length - 1];
+                  const others = prev.slice(0, -1);
+                  return [...others, { ...last, content: assistantMessage }];
+                });
+              }
+            }
+          } catch (e) {}
+        }
+      }
     }
   };
 
@@ -242,7 +304,7 @@ const ChatWidget = () => {
     <div className="fixed bottom-8 right-8 z-[100] flex flex-col items-end pointer-events-none">
       {/* Chat Window */}
       {isOpen && (
-        <div 
+        <div
           className={`pointer-events-auto bg-base-100/90 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/10 mb-6 flex flex-col overflow-hidden transition-all duration-300 ease-in-out transform origin-bottom-right animate-in zoom-in-90 fade-in duration-200 ${
             isMaximized ? 'w-[700px] h-[70vh]' : 'w-96 h-[600px]'
           }`}
@@ -250,7 +312,7 @@ const ChatWidget = () => {
           {/* Header */}
           <header className="bg-gradient-to-r from-primary to-indigo-600 p-5 flex justify-between items-center text-white shrink-0">
             <div className="flex items-center space-x-3">
-              <button 
+              <button
                 onClick={toggleSessions}
                 className="btn btn-ghost btn-square btn-sm hover:bg-white/10 text-white"
               >
@@ -330,8 +392,8 @@ const ChatWidget = () => {
                       </div>
                     ) : (
                       <div className={`chat-bubble text-[13px] font-medium leading-relaxed ${
-                        isMe 
-                          ? 'bg-primary text-white rounded-2xl shadow-lg shadow-primary/10' 
+                        isMe
+                          ? 'bg-primary text-white rounded-2xl shadow-lg shadow-primary/10'
                           : msg.error
                             ? 'bg-red-500/10 text-red-400 border border-red-500/20'
                             : 'bg-base-200 text-gray-300 border border-white/5 rounded-2xl'
@@ -357,18 +419,22 @@ const ChatWidget = () => {
                   <button onClick={() => setShowSessions(false)} className="btn btn-ghost btn-xs text-primary font-bold uppercase tracking-widest px-0 hover:bg-transparent">Close</button>
                 </div>
                 <div className="flex-1 overflow-y-auto space-y-2">
-                  {[...threads].reverse().map(tid => (
-                    <button
-                      key={tid}
-                      onClick={() => { setCurrentThreadId(tid); setShowSessions(false); }}
-                      className={`w-full text-left p-4 rounded-xl transition-all border duration-300 ${
-                        currentThreadId === tid ? 'bg-primary text-white border-primary shadow-lg shadow-primary/20' : 'hover:bg-white/5 border-transparent text-gray-400'
-                      }`}
-                    >
-                      <div className="text-[10px] uppercase font-bold opacity-50 mb-1 tracking-widest leading-none">Session ID</div>
-                      <div className="truncate text-[10px] font-mono">{tid}</div>
-                    </button>
-                  ))}
+                  {threads.length === 0 ? (
+                    <p className="text-center text-gray-500 py-10 text-[10px] font-black uppercase tracking-widest italic">No recent sessions</p>
+                  ) : (
+                    [...threads].reverse().map(tid => (
+                      <button
+                        key={tid}
+                        onClick={() => selectThread(tid)}
+                        className={`w-full text-left p-4 rounded-xl transition-all border duration-300 ${
+                          currentThreadId === tid ? 'bg-primary text-white border-primary shadow-lg shadow-primary/20' : 'hover:bg-white/5 border-transparent text-gray-400'
+                        }`}
+                      >
+                        <div className="text-[10px] uppercase font-bold opacity-50 mb-1 tracking-widest leading-none">Session ID</div>
+                        <div className="truncate text-[10px] font-mono">{tid}</div>
+                      </button>
+                    ))
+                  )}
                 </div>
               </div>
             )}
@@ -393,7 +459,7 @@ const ChatWidget = () => {
       )}
 
       {/* Toggle Button */}
-      <button 
+      <button
         onClick={() => setIsOpen(!isOpen)}
         className="pointer-events-auto btn btn-primary btn-circle w-16 h-16 shadow-2xl hover:scale-110 active:scale-95 transition-all shadow-primary/40 p-0 border-none bg-gradient-to-tr from-primary to-indigo-600"
       >

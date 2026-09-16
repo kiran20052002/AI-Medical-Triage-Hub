@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
+import ChatWidget from '../components/ChatWidget';
 
 const DoctorDashboard = () => {
   const [tickets, setTickets] = useState([]);
@@ -40,7 +41,7 @@ const DoctorDashboard = () => {
   };
 
   return (
-    <div className="bg-base-200 min-h-screen pb-20">
+    <div className="bg-base-200 min-h-screen">
       <div className="max-w-4xl mx-auto pt-8 px-4">
         <h1 className="text-3xl font-bold text-white mb-2">Doctor Dashboard</h1>
         <p className="text-gray-400 mb-8">Welcome back. Here are the cases assigned to you.</p>
@@ -102,6 +103,8 @@ const DoctorDashboard = () => {
           </div>
         )}
       </div>
+
+      <ChatWidget />
     </div>
   );
 };

@@ -13,14 +13,3 @@ async def get_chat_history(ticket_id: str, user = Depends(require_user)):
     except Exception as e:
         print(f"Error fetching history: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch chat history")
-
-# Deprecated/Removed Stream Token logic
-@router.get("/token")
-async def get_token_stub(user = Depends(require_user)):
-    return {
-        "status": "deprecated",
-        "userId": str(user.id),
-        "user_id": str(user.id),
-        "user_name": user.email
-    }
-    

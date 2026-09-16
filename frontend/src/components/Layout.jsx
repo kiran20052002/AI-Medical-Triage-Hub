@@ -1,6 +1,5 @@
 import React from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import ChatWidget from './ChatWidget';
 import { useAuth } from '../context/AuthContext';
 
 const Layout = () => {
@@ -86,8 +85,6 @@ const Layout = () => {
       <main className={`flex-grow ${['/chat', '/chatbot'].includes(location.pathname) ? 'pt-0' : 'pt-4'}`}>
         <Outlet />
       </main>
-
-      {user && (user.role === 'doctor' || user.role === 'patient') && <ChatWidget />}
 
       {/* Footer - Only on Home Page */}
       {location.pathname === '/' && (

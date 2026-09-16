@@ -1,6 +1,6 @@
 from typing import List, Optional
 from datetime import datetime
-from beanie import Document, Link, PydanticObjectId
+from beanie import Document, PydanticObjectId
 from pydantic import BaseModel, EmailStr, Field
 from pydantic.alias_generators import to_camel
 

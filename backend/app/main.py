@@ -98,6 +98,10 @@ async def websocket_endpoint(websocket: WebSocket, ticket_id: str):
     except Exception as e:
         print(f"WebSocket error: {e}")
         manager.disconnect(websocket, room_id)
+        try:
+            await websocket.close()
+        except Exception:
+            pass
 
 
 app.add_middleware(
@@ -122,7 +126,7 @@ app.include_router(admin.router)
 
 @app.get("/")
 async def home(request: Request):
-    return {"message": "Welcome to the Medical Hub API!"}
+    return {"message": "Welcome to AI Medical Hub"}
 
 if __name__ == "__main__":
     import uvicorn

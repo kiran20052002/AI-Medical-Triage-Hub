@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import api from "../services/api";
+import ChatWidget from "../components/ChatWidget";
 
 const PatientDashboard = () => {
   const [tickets, setTickets] = useState([]);
@@ -49,8 +50,19 @@ const PatientDashboard = () => {
     }
   };
 
+  const handleDeleteTicket = async (id) => {
+    if (window.confirm("Are you sure you want to delete this ticket?")) {
+      try {
+        await api.delete(`/tickets/${id}`);
+        fetchTickets();
+      } catch (err) {
+        console.error("Failed to delete ticket", err);
+      }
+    }
+  };
+
   return (
-    <div className="bg-base-200 min-h-screen pb-20">
+    <div className="bg-base-200 min-h-screen">
       <div className="max-w-4xl mx-auto pt-8 px-4">
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-3xl font-bold text-white tracking-tight">
@@ -96,6 +108,12 @@ const PatientDashboard = () => {
                     {ticket.description}
                   </p>
                   <div className="card-actions justify-end">
+                    <button
+                      onClick={() => handleDeleteTicket(ticket._id || ticket.id)}
+                      className="btn btn-sm btn-error btn-outline hover:bg-red-500 hover:text-white transition-colors"
+                    >
+                      Delete
+                    </button>
                     <Link
                       to={`/tickets/${ticket._id || ticket.id}`}
                       className="btn btn-sm btn-ghost hover:bg-white/10 transition-colors"
@@ -184,6 +202,8 @@ const PatientDashboard = () => {
           ></div>
         </div>
       )}
+
+      <ChatWidget />
     </div>
   );
 };

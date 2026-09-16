@@ -2,18 +2,29 @@ import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useAuth } from '../context/AuthContext';
 
 const AIChatbotPage = () => {
+  const { user } = useAuth();
+  const threadStorageKey = `chatbot_thread_id:${user?.id}`;
   const [threads, setThreads] = useState([]);
-  const [currentThreadId, setCurrentThreadId] = useState(null);
+  const [currentThreadId, setCurrentThreadId] = useState(() => localStorage.getItem(`chatbot_thread_id:${user?.id}`));
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
-    loadThreads();
+    loadThreads({ restoreSession: true });
   }, []);
+
+  useEffect(() => {
+    if (currentThreadId) {
+      localStorage.setItem(threadStorageKey, currentThreadId);
+    } else {
+      localStorage.removeItem(threadStorageKey);
+    }
+  }, [currentThreadId, threadStorageKey]);
 
   useEffect(() => {
     scrollToBottom();
@@ -23,10 +34,31 @@ const AIChatbotPage = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const loadThreads = async () => {
+  const createThread = async () => {
+    const res = await api.post('/chatbot/threads');
+    const threadId = res.data.thread_id;
+    setCurrentThreadId(threadId);
+    return threadId;
+  };
+
+  const loadThreads = async ({ restoreSession = false } = {}) => {
     try {
       const res = await api.get('/chatbot/threads');
-      setThreads(res.data.threads || []);
+      const savedThreads = res.data.threads || [];
+      setThreads(savedThreads);
+
+      // Only restore history when the page first loads. Refreshing the sidebar
+      // after a streamed reply must not clear and refetch the visible messages.
+      if (restoreSession) {
+        const storedThreadId = localStorage.getItem(threadStorageKey);
+        const threadToOpen = savedThreads.includes(storedThreadId)
+          ? storedThreadId
+          : savedThreads[0];
+
+        if (threadToOpen) {
+          await selectThread(threadToOpen);
+        }
+      }
     } catch (e) {
       console.error('Failed to load threads');
     }
@@ -46,9 +78,14 @@ const AIChatbotPage = () => {
     }
   };
 
-  const startNewChat = () => {
-    setCurrentThreadId(`chat-${Math.random().toString(36).substring(2, 11)}`);
-    setMessages([]);
+  const startNewChat = async () => {
+    try {
+      await createThread();
+      setMessages([]);
+      loadThreads();
+    } catch (e) {
+      console.error('Failed to create chat session');
+    }
   };
 
   const handleDeleteThread = async (e, tid) => {
@@ -58,7 +95,8 @@ const AIChatbotPage = () => {
     try {
       await api.delete(`/chatbot/thread/${encodeURIComponent(tid)}`);
       if (currentThreadId === tid) {
-        startNewChat();
+        setCurrentThreadId(null);
+        setMessages([]);
       }
       loadThreads();
     } catch (e) {
@@ -172,81 +210,106 @@ const AIChatbotPage = () => {
 
     let tid = currentThreadId;
     if (!tid) {
-      tid = `chat-${Math.random().toString(36).substring(2, 11)}`;
-      setCurrentThreadId(tid);
+      try {
+        tid = await createThread();
+      } catch (e) {
+        setMessages(prev => [...prev, { role: 'assistant', content: 'Could not start a chat session. Please try again.', error: true }]);
+        return;
+      }
     }
 
     setMessages(prev => [...prev, { role: 'user', content: text }]);
     setInputText('');
 
     try {
-      const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
-      const response = await fetch(`${baseUrl}/chatbot/query`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: text, thread_id: tid }),
-        credentials: 'include',
-      });
-
-      if (!response.ok) throw new Error('Query failed');
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let assistantMessage = '';
-      let isFirstChunk = true;
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const dataStr = line.substring(6);
-            if (dataStr === '[DONE]') continue;
-
-            try {
-              const data = JSON.parse(dataStr);
-              if (data.status === 'requires_approval') {
-                setMessages(prev => {
-                  const others = isFirstChunk ? prev : prev.slice(0, -1);
-                  return [
-                    ...others,
-                    { 
-                      role: 'assistant', 
-                      content: '', 
-                      requiresApproval: true, 
-                      ticketDetails: data.ticket_details 
-                    }
-                  ];
-                });
-                return;
-              }
-
-              if (data.content) {
-                if (isFirstChunk) {
-                  assistantMessage = data.content;
-                  setMessages(prev => [...prev, { role: 'assistant', content: assistantMessage }]);
-                  isFirstChunk = false;
-                } else {
-                  assistantMessage += data.content;
-                  setMessages(prev => {
-                    const last = prev[prev.length - 1];
-                    const others = prev.slice(0, -1);
-                    return [...others, { ...last, content: assistantMessage }];
-                  });
-                }
-              }
-            } catch (e) {}
-          }
+      await sendQueryToThread(tid, text);
+    } catch (err) {
+      if (err?.status === 404) {
+        // The stored session no longer exists on the server (e.g. it expired
+        // or was deleted elsewhere). Silently start a fresh one and retry
+        // instead of surfacing a raw error to the user.
+        try {
+          const freshTid = await createThread();
+          loadThreads();
+          await sendQueryToThread(freshTid, text);
+          return;
+        } catch (retryErr) {
+          // fall through to generic error below
         }
       }
-      loadThreads();
-    } catch (err) {
       setMessages(prev => [...prev, { role: 'assistant', content: 'I encountered an error. Please try again.', error: true }]);
     }
+  };
+
+  const sendQueryToThread = async (tid, text) => {
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+    const response = await fetch(`${baseUrl}/chatbot/query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: text, thread_id: tid }),
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const error = new Error('Query failed');
+      error.status = response.status;
+      throw error;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let assistantMessage = '';
+    let isFirstChunk = true;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value);
+      const lines = chunk.split('\n');
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const dataStr = line.substring(6);
+          if (dataStr === '[DONE]') continue;
+
+          try {
+            const data = JSON.parse(dataStr);
+            if (data.status === 'requires_approval') {
+              setMessages(prev => {
+                const others = isFirstChunk ? prev : prev.slice(0, -1);
+                return [
+                  ...others,
+                  {
+                    role: 'assistant',
+                    content: '',
+                    requiresApproval: true,
+                    ticketDetails: data.ticket_details
+                  }
+                ];
+              });
+              return;
+            }
+
+            if (data.content) {
+              if (isFirstChunk) {
+                assistantMessage = data.content;
+                setMessages(prev => [...prev, { role: 'assistant', content: assistantMessage }]);
+                isFirstChunk = false;
+              } else {
+                assistantMessage += data.content;
+                setMessages(prev => {
+                  const last = prev[prev.length - 1];
+                  const others = prev.slice(0, -1);
+                  return [...others, { ...last, content: assistantMessage }];
+                });
+              }
+            }
+          } catch (e) {}
+        }
+      }
+    }
+    loadThreads();
   };
 
   return (
@@ -285,7 +348,7 @@ const AIChatbotPage = () => {
               >
                 <div className="flex items-center space-x-3 truncate">
                   <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${currentThreadId === tid ? 'bg-white' : 'bg-gray-700'}`}></div>
-                  <span className="truncate text-[10px] font-bold uppercase tracking-widest">{tid}</span>
+                  <span className="truncate text-[10px] font-bold uppercase tracking-widest">{tid.slice(0, 8)}</span>
                 </div>
                 <div 
                   onClick={(e) => handleDeleteThread(e, tid)}
@@ -318,7 +381,7 @@ const AIChatbotPage = () => {
               </div>
             </div>
           </div>
-          {currentThreadId && <div className="text-[10px] font-mono text-gray-600 uppercase tracking-tighter">SESSION: {currentThreadId}</div>}
+          {currentThreadId && <div className="text-[10px] font-mono text-gray-600 uppercase tracking-tighter">SESSION: {currentThreadId.slice(0, 8)}</div>}
         </header>
 
         <div className="flex-1 overflow-y-auto p-8 space-y-6">

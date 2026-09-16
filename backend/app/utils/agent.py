@@ -21,13 +21,13 @@ class AgentState(TypedDict):
 
 
 
-rag_system_prompt = """You are a meticulous medical research agent. Your goal is to answer the user's question by searching our database of similar past medical cases. You must strictly follow this process:
+rag_system_prompt = """You are a medical research agent. Your goal is to answer the user's question by searching our medical knowledge base. You must strictly follow this process:
 
-1. **Search**: Use the provided search tool to find relevant past cases based on the user's query.
+1. **Search**: Use the provided search tool to find relevant medical information based on the user's query.
 2. **Check Relevance**: Use the relevance checking tool to verify if the retrieved documents are relevant to the user's question. 
    - If they are NOT relevant, rewrite your search query and try searching again. You have a MAXIMUM limit of 2 search attempts/rewrites. 
-   - If you reach the limit or still cannot find relevant documents, output exactly: "I've searched our medical records and couldn't find a case similar to your description. I recommend creating a support ticket so one of our specialists can review your symptoms in detail." and stop.
-3. **Draft & Check Support**: If relevant documents are found, draft a concise and direct answer based ONLY on the retrieved documents. NEVER say "Based on your medical records"; instead use "Based on similar past cases". Do not offer follow-up questions. 
+   - If you reach the limit or still cannot find relevant documents, output exactly: "I've searched our medical knowledge base and couldn't find information relevant to your description. I recommend creating a support ticket so one of our specialists can review your symptoms in detail." and stop.
+3. **Draft & Check Support**: If relevant documents are found, draft a concise and direct answer based ONLY on the retrieved documents. NEVER say "Based on your medical records"; instead use "Based on our medical knowledge base" or "According to the provided medical information". Do not offer follow-up questions. 
    - Before providing the answer to the user, you MUST use the support checking tool to verify your draft is strictly grounded in the retrieved documents (no hallucinations). 
    - If it returns 'no', revise your draft and check again. You have a MAXIMUM limit of 2 drafting attempts. If you reach the limit and it still fails, output the standard fallback message mentioned above.
 4. **Check Usefulness**: Use the usefulness checking tool to ensure your drafted answer actually resolves the user's question. 
@@ -63,46 +63,32 @@ async def call_rag_agent(state: AgentState, config: RunnableConfig):
     response = await rag_agent_app.ainvoke({"messages": clean_messages}, config)
     rag_final_text = response["messages"][-1].content
     
-    # Manually extract sources and append them if the LLM forgot
-    sources = set()
-    import re
-    for msg in response["messages"]:
-        if isinstance(msg, ToolMessage) and msg.name == "search_medical_knowledge":
-            matches = re.findall(r"--- Source: (.*?) ---", msg.content)
-            for m in matches:
-                sources.add(m)
-                
-    if sources and "Sources:" not in rag_final_text:
-        rag_final_text += "\n\n**Sources:**\n" + "\n".join([f"- {s}" for s in sources])
     
-    # We MUST fulfill the main agent's tool call to avoid INVALID_CHAT_HISTORY errors
     tool_call_id = last_message.tool_calls[0]["id"]
     tool_message = ToolMessage(
         content=rag_final_text, 
         tool_call_id=tool_call_id, 
         name="search_medical_knowledge"
     )
-    
-    # We also return a standard AIMessage so the UI displays the response correctly
-    final_ai_message = AIMessage(content=rag_final_text)
-    
-    return {"messages": [tool_message, final_ai_message]}
-
+    return {"messages": [tool_message]}
 
 
 async def agent_node(state: AgentState, config: RunnableConfig):
     print("--- AGENT NODE ---")
     messages = state["messages"]
-    
     llm_with_tools = llm.bind_tools(tools)
     
-    system = """You are a helpful and empathetic medical assistant.
+    system = """You are a helpful and empathetic medical assistant for the AI Medical Triage Hub.
+You must NEVER mention that you are an AI developed by OpenAI, ChatGPT, or any other specific corporate entity. If asked who you are, simply state that you are the AI Medical Hub Assistant.
 You have access to several tools.
-CRITICAL: If the user asks ANY medical question or describes ANY symptoms, you MUST use the search_medical_knowledge tool to search for medical documents. Do NOT answer from your own knowledge.
+
+CRITICAL: If the user explicitly asks to create a support ticket, you MUST prioritize using the create_ticket tool, even if they also describe symptoms.
+CRITICAL: If the user asks ANY medical question or describes ANY symptoms and DOES NOT explicitly ask to create a ticket, you MUST use the search_medical_knowledge tool to search for medical documents.
+SCOPE: Only answer medical, healthcare-navigation, or medical support-ticket questions. Do not answer general knowledge, small talk, coding, entertainment, finance, politics, schoolwork, or any other unrelated topic. For an out-of-scope request, respond only: "I can only help with medical, healthcare, and medical support-ticket questions. Please ask a health-related question."
 
 IMPORTANT: When you use the find_nearby_facility tool, you MUST explicitly list the names and addresses of the facilities returned by the tool in your final response. Do not just output a generic disclaimer.
 
-If no tools are needed (e.g. greetings, general conversation, or follow-up clarifications), write a direct answer.
+If no tools are needed for an in-scope request (e.g. a medical follow-up clarification), write a direct answer.
 
 CRITICAL: If a tool execution returns a cancellation or rejection response (for example, if the create_ticket tool returns "Ticket creation cancelled by user."), do NOT call that tool again in this turn. Instead, write a direct text response to the user acknowledging the cancellation and asking how they would like to proceed.
 """
@@ -127,8 +113,8 @@ def route_after_agent(state: AgentState):
     last_message = messages[-1]
     
     if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-        tool_name = last_message.tool_calls[0]["name"]
-        if tool_name == "search_medical_knowledge":
+        tool_names = [tc["name"] for tc in last_message.tool_calls]
+        if "search_medical_knowledge" in tool_names:
             return "call_rag_agent"
         else:
             return "other_tools"

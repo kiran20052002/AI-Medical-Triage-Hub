@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, Request, Form, BackgroundTasks, HTTPException, status
+from fastapi import APIRouter, Depends, Request, Form, HTTPException, status
 from fastapi.responses import JSONResponse, RedirectResponse
 from app.dependencies import get_current_user, require_user
 from app.models import Ticket, Patient, Doctor, ChatMessage
 from beanie import PydanticObjectId
 from datetime import datetime
 import os
+import asyncio
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -31,11 +33,11 @@ async def process_ticket_ai(ticket_id: str, title: str, description: str):
     analysis = await analyze_ticket_ai(title, description, available_specialists=available_specialists)
 
     if analysis:
-        ticket.helpful_notes = analysis.get("helpfulNotes")
-        ticket.priority = analysis.get("priority")
-        ticket.specialist = analysis.get("specialist")
+        ticket.helpful_notes = analysis.helpfulNotes
+        ticket.priority = analysis.priority
+        ticket.specialist = analysis.specialist
         
-        required_specialists = analysis.get("specialist", [])
+        required_specialists = analysis.specialist
         if required_specialists:
             doctor = await Doctor.find_one({"specialist": {"$in": required_specialists}})
 
@@ -71,7 +73,6 @@ async def get_tickets(request: Request, user = Depends(require_user)):
 @router.post("/create")
 async def create_ticket(
     request: Request,
-    background_tasks: BackgroundTasks,
     title: str = Form(...),
     description: str = Form(...),
     user = Depends(require_user)
@@ -86,7 +87,7 @@ async def create_ticket(
     await ticket.insert()
 
     # Triger AI analysis in Background
-    background_tasks.add_task(process_ticket_ai, str(ticket.id), title, description)
+    asyncio.create_task(process_ticket_ai(str(ticket.id), title, description))
     return {"status": "success", "ticket_id": str(ticket.id)}
 
 
@@ -110,7 +111,7 @@ async def get_ticket_detail(id: str, request: Request, user = Depends(require_us
 
 
 @router.post("/{id}/analyze-closure")
-async def analyze_closure(id: str, background_tasks: BackgroundTasks, user = Depends(require_user)):
+async def analyze_closure(id: str, user = Depends(require_user)):
 
     from app.utils.ai_utils import generate_closure_summary, analyze_ticket_chat_ai
 
@@ -125,7 +126,6 @@ async def analyze_closure(id: str, background_tasks: BackgroundTasks, user = Dep
     chat_history_text = ""
     if ticket.channel_id:
         try:
-            # Fetch local messages
             messages = await ChatMessage.find(ChatMessage.ticket_id == PydanticObjectId(ticket.id)).sort("created_at").limit(50).to_list()
             
             formatted_messages = []
@@ -194,8 +194,14 @@ async def accept_connection(id: str, user = Depends(require_user)):
     return RedirectResponse(f"/tickets/{id}", status_code=303)
 
 
-
-
-
+@router.delete("/{id}")
+async def delete_ticket(id: str, user = Depends(require_user)):
+    ticket = await Ticket.get(id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
     
-    
+    if ticket.created_by != user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this ticket")
+        
+    await ticket.delete()
+    return {"status": "success", "message": "Ticket deleted successfully"}
