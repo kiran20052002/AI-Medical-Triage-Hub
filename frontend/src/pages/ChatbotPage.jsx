@@ -4,6 +4,20 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAuth } from '../context/AuthContext';
 
+const DOCTOR_SUGGESTIONS = [
+  { label: 'Close a ticket', query: 'Help me close a ticket' },
+  { label: 'Close all tickets', query: 'Find and close all closable tickets' },
+  { label: 'Generate a report', query: 'Help me generate a report for a ticket' },
+  { label: 'Generate all reports', query: 'Find and generate reports for all closed tickets without a report' },
+];
+
+const PATIENT_SUGGESTIONS = [
+  { label: 'Describe my symptoms', query: 'I have been experiencing ', autoSend: false },
+  { label: 'Create a support ticket', query: 'I want to create a support ticket about ', autoSend: false },
+  { label: 'View my tickets', query: 'Show me my tickets', autoSend: true },
+  { label: 'Find nearby facility', query: 'Find a nearby medical facility in ', autoSend: false },
+];
+
 const AIChatbotPage = () => {
   const { user } = useAuth();
   const threadStorageKey = `chatbot_thread_id:${user?.id}`;
@@ -13,6 +27,7 @@ const AIChatbotPage = () => {
   const [inputText, setInputText] = useState('');
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
 
   useEffect(() => {
     loadThreads({ restoreSession: true });
@@ -265,9 +280,9 @@ const AIChatbotPage = () => {
     }
   };
 
-  const handleSendMessage = async (e) => {
-    e.preventDefault();
-    const text = inputText.trim();
+  const handleSendMessage = async (e, overrideText) => {
+    e?.preventDefault();
+    const text = (overrideText ?? inputText).trim();
     if (!text) return;
 
     let tid = currentThreadId;
@@ -649,8 +664,30 @@ const AIChatbotPage = () => {
         </div>
 
         <footer className="p-4 bg-base-300/50 border-t border-white/5 backdrop-blur-md">
+          <div className="max-w-4xl mx-auto mb-3">
+              <p className="text-[10px] text-gray-500 uppercase tracking-widest font-black mb-2">Suggested questions:</p>
+              <div className="flex flex-wrap gap-2">
+                {(user?.role === 'doctor' ? DOCTOR_SUGGESTIONS : PATIENT_SUGGESTIONS).map((s) => (
+                  <button
+                    key={s.label}
+                    onClick={() => {
+                      if (s.autoSend === false) {
+                        setInputText(s.query);
+                        inputRef.current?.focus();
+                      } else {
+                        handleSendMessage(null, s.query);
+                      }
+                    }}
+                    className="btn btn-xs rounded-full bg-base-200 border border-white/10 text-gray-300 font-semibold normal-case hover:bg-primary hover:text-white hover:border-primary transition-colors"
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           <form onSubmit={handleSendMessage} className="max-w-4xl mx-auto flex gap-4 items-center">
             <input
+              ref={inputRef}
               type="text"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
