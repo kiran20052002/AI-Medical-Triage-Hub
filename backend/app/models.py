@@ -42,6 +42,7 @@ class Report(Document):
 class MedicalDocumentParent(Document):
     title: str
     content: str
+    source_filename: Optional[str] = Field(default=None, alias="sourceFilename")
     created_at: datetime = Field(default_factory=datetime.now)
 
     class Settings(BaseConfig.Config):

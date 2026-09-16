@@ -162,6 +162,24 @@ async def analyze_closure(id: str, user = Depends(require_user)):
     return {"status": "closed", "message": "Ticket Closed Successfully. AI Summary added."}
 
 
+@router.post("/{id}/priority")
+async def update_priority(id: str, priority: str = Form(...), user = Depends(require_user)):
+    if priority not in ("low", "medium", "high"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid priority")
+
+    ticket = await Ticket.get(id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    if user.role != "doctor" or ticket.assigned_to != user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    ticket.priority = priority
+    await ticket.save()
+
+    return {"status": "success", "priority": ticket.priority}
+
+
 @router.post("/{id}/request-connection")
 async def request_connection(id: str, user = Depends(require_user)):
     ticket = await Ticket.get(id)

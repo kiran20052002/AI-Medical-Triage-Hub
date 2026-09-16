@@ -304,7 +304,8 @@ async def process_medical_pdf(file_bytes: bytes, filename: str):
     for i, p_text in enumerate(parent_texts):
         parent_doc = MedicalDocumentParent(
             title=f"{filename} - Part {i+1}",
-            content=p_text
+            content=p_text,
+            source_filename=filename
         )
         await parent_doc.insert()
 

@@ -3,11 +3,19 @@ import { Link } from 'react-router-dom';
 import api from '../services/api';
 import ChatWidget from '../components/ChatWidget';
 
+const CLOSED_STATUSES = ['completed', 'resolved', 'report sent'];
+const isClosed = (status) => CLOSED_STATUSES.includes((status || '').toLowerCase());
+
+const PRIORITY_RANK = { high: 0, medium: 1, low: 2 };
+const priorityRank = (priority) => PRIORITY_RANK[(priority || '').toLowerCase()] ?? 3;
+
 const DoctorDashboard = () => {
   const [tickets, setTickets] = useState([]);
   const [patientMap, setPatientMap] = useState({});
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('active');
+  const [priorityFilter, setPriorityFilter] = useState('all');
 
   useEffect(() => {
     fetchData();
@@ -40,11 +48,67 @@ const DoctorDashboard = () => {
     }
   };
 
+  const handlePriorityChange = async (ticketId, priority) => {
+    if (!window.confirm(`Set priority to "${priority.toUpperCase()}" for this ticket?`)) return;
+
+    setTickets((prev) =>
+      prev.map((t) => ((t._id || t.id) === ticketId ? { ...t, priority } : t))
+    );
+    try {
+      const formData = new FormData();
+      formData.append('priority', priority);
+      await api.post(`/tickets/${ticketId}/priority`, formData, {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+      });
+    } catch (err) {
+      alert('Failed to update priority');
+      fetchData();
+    }
+  };
+
+  const visibleTickets = tickets
+    .filter((ticket) => (activeTab === 'closed' ? isClosed(ticket.status) : !isClosed(ticket.status)))
+    .filter((ticket) => priorityFilter === 'all' || (ticket.priority || '').toLowerCase() === priorityFilter)
+    .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority));
+
   return (
     <div className="bg-base-200 min-h-screen">
       <div className="max-w-4xl mx-auto pt-8 px-4">
         <h1 className="text-3xl font-bold text-white mb-2">Doctor Dashboard</h1>
         <p className="text-gray-400 mb-8">Welcome back. Here are the cases assigned to you.</p>
+
+        <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+          <div role="tablist" className="tabs tabs-boxed w-fit bg-base-100 border border-white/5">
+            <a
+              role="tab"
+              className={`tab uppercase text-xs font-bold tracking-widest ${activeTab === 'active' ? 'tab-active' : ''}`}
+              onClick={() => setActiveTab('active')}
+            >
+              In Progress ({tickets.filter((t) => !isClosed(t.status)).length})
+            </a>
+            <a
+              role="tab"
+              className={`tab uppercase text-xs font-bold tracking-widest ${activeTab === 'closed' ? 'tab-active' : ''}`}
+              onClick={() => setActiveTab('closed')}
+            >
+              Closed ({tickets.filter((t) => isClosed(t.status)).length})
+            </a>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black">Filter:</span>
+            <select
+              value={priorityFilter}
+              onChange={(e) => setPriorityFilter(e.target.value)}
+              className="select select-sm select-bordered bg-base-100 border-white/5 uppercase text-[10px] font-bold tracking-widest"
+            >
+              <option value="all">All Priorities</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+          </div>
+        </div>
 
         {isLoading ? (
           <div className="flex justify-center py-20">
@@ -52,7 +116,7 @@ const DoctorDashboard = () => {
           </div>
         ) : (
           <div className="grid gap-4">
-            {tickets.map((ticket) => (
+            {visibleTickets.map((ticket) => (
               <div key={ticket.id} className="card bg-base-100 shadow-md border border-white/5">
                 <div className="card-body p-5">
                   <div className="flex justify-between items-start">
@@ -78,9 +142,21 @@ const DoctorDashboard = () => {
                       <span className="opacity-40 lowercase font-medium tracking-normal">{new Date(ticket.createdAt || ticket.created_at).toLocaleString()}</span>
                     </div>
 
-                    <div className="flex gap-2">
+                    <div className="flex items-center gap-2">
+                      {!isClosed(ticket.status) && (
+                        <select
+                          value={(ticket.priority || '').toLowerCase()}
+                          onChange={(e) => handlePriorityChange(ticket._id || ticket.id, e.target.value)}
+                          className="select select-sm select-bordered bg-base-200 border-white/10 uppercase text-[10px] font-bold tracking-widest"
+                        >
+                          <option value="" disabled>Priority</option>
+                          <option value="high">High</option>
+                          <option value="medium">Medium</option>
+                          <option value="low">Low</option>
+                        </select>
+                      )}
                       {(ticket.status === 'completed' || ticket.status === 'resolved') && (
-                        <button 
+                        <button
                           onClick={() => handleSendReport(ticket._id || ticket.id)}
                           className="btn btn-sm btn-primary px-4 shadow-lg shadow-primary/20"
                         >
@@ -95,9 +171,9 @@ const DoctorDashboard = () => {
                 </div>
               </div>
             ))}
-            {tickets.length === 0 && (
+            {visibleTickets.length === 0 && (
               <div className="text-center py-16 text-gray-500 bg-base-100 rounded-2xl border border-white/5 uppercase tracking-widest text-sm font-bold">
-                No cases assigned.
+                {activeTab === 'closed' ? 'No closed cases.' : 'No cases in progress.'}
               </div>
             )}
           </div>

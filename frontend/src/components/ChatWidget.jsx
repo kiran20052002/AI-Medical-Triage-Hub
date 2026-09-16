@@ -97,7 +97,19 @@ const ChatWidget = () => {
     await loadHistory(tid);
   };
 
-  const handleApproveAction = async (idx, action, tid) => {
+  const toggleClosureSelection = (idx, ticketId) => {
+    setMessages(prev => {
+      const copy = [...prev];
+      const current = copy[idx].selectedClosureIds || [];
+      const next = current.includes(ticketId)
+        ? current.filter(id => id !== ticketId)
+        : [...current, ticketId];
+      copy[idx] = { ...copy[idx], selectedClosureIds: next };
+      return copy;
+    });
+  };
+
+  const handleApproveAction = async (idx, action, tid, selectedIds) => {
     setMessages(prev => {
       const copy = [...prev];
       copy[idx] = { ...copy[idx], approvalLoading: true };
@@ -106,10 +118,12 @@ const ChatWidget = () => {
 
     try {
       const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+      const body = { thread_id: tid, action: action };
+      if (selectedIds) body.selected_ids = selectedIds;
       const response = await fetch(`${baseUrl}/chatbot/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ thread_id: tid, action: action }),
+        body: JSON.stringify(body),
         credentials: 'include',
       });
 
@@ -125,7 +139,8 @@ const ChatWidget = () => {
         copy[idx] = {
           role: 'assistant',
           content: 'Processing...',
-          requiresApproval: false
+          requiresApproval: false,
+          requiresClosureApproval: false
         };
         return copy;
       });
@@ -158,6 +173,21 @@ const ChatWidget = () => {
                 return;
               }
 
+              if (data.status === 'requires_closure_approval') {
+                setMessages(prev => {
+                  const copy = [...prev];
+                  copy[idx] = {
+                    role: 'assistant',
+                    content: '',
+                    requiresClosureApproval: true,
+                    closureDetails: data.closure_details,
+                    selectedClosureIds: (data.closure_details?.candidates || []).map(c => c.id)
+                  };
+                  return copy;
+                });
+                return;
+              }
+
               if (data.content) {
                 if (isFirstChunk) {
                   assistantMessage = data.content;
@@ -170,7 +200,8 @@ const ChatWidget = () => {
                   copy[idx] = {
                     role: 'assistant',
                     content: assistantMessage,
-                    requiresApproval: false
+                    requiresApproval: false,
+                    requiresClosureApproval: false
                   };
                   return copy;
                 });
@@ -186,7 +217,8 @@ const ChatWidget = () => {
           role: 'assistant',
           content: 'I encountered an error processing your approval. Please try again.',
           error: true,
-          requiresApproval: false
+          requiresApproval: false,
+          requiresClosureApproval: false
         };
         return copy;
       });
@@ -274,6 +306,23 @@ const ChatWidget = () => {
                     content: '',
                     requiresApproval: true,
                     ticketDetails: data.ticket_details
+                  }
+                ];
+              });
+              return;
+            }
+
+            if (data.status === 'requires_closure_approval') {
+              setMessages(prev => {
+                const others = isFirstChunk ? prev : prev.slice(0, -1);
+                return [
+                  ...others,
+                  {
+                    role: 'assistant',
+                    content: '',
+                    requiresClosureApproval: true,
+                    closureDetails: data.closure_details,
+                    selectedClosureIds: (data.closure_details?.candidates || []).map(c => c.id)
                   }
                 ];
               });
@@ -380,6 +429,49 @@ const ChatWidget = () => {
                             className="btn btn-primary btn-xs flex-1 font-bold rounded-lg uppercase tracking-wider shadow-lg shadow-primary/20"
                           >
                             {msg.approvalLoading ? <span className="loading loading-spinner loading-xs"></span> : 'Approve'}
+                          </button>
+                          <button
+                            disabled={msg.approvalLoading}
+                            onClick={() => handleApproveAction(idx, 'reject', currentThreadId)}
+                            className="btn btn-ghost btn-xs flex-1 font-bold rounded-lg border border-white/10 uppercase tracking-wider hover:bg-red-500/10 hover:text-red-400"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : msg.requiresClosureApproval ? (
+                      <div className="chat-bubble bg-base-200 border border-warning/20 rounded-2xl p-4 max-w-sm shadow-xl">
+                        <div className="flex items-center gap-2 text-warning mb-2">
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" className="w-5 h-5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                          </svg>
+                          <h3 className="font-bold text-xs uppercase tracking-wider text-white">Confirm Closures</h3>
+                        </div>
+                        <p className="text-[11px] text-gray-400 mb-3">Select tickets to close:</p>
+                        <div className="space-y-2 mb-4 max-h-56 overflow-y-auto">
+                          {(msg.closureDetails?.candidates || []).map(c => (
+                            <label key={c.id} className="flex items-start gap-2 bg-base-300/50 rounded-lg p-2.5 border border-white/5 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                className="checkbox checkbox-primary checkbox-xs mt-0.5"
+                                checked={(msg.selectedClosureIds || []).includes(c.id)}
+                                disabled={msg.approvalLoading}
+                                onChange={() => toggleClosureSelection(idx, c.id)}
+                              />
+                              <div className="min-w-0">
+                                <p className="text-xs font-semibold text-white">{c.title}</p>
+                                <p className="text-[10px] text-gray-400 mt-0.5 leading-relaxed line-clamp-2">{c.reasoning}</p>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            disabled={msg.approvalLoading || (msg.selectedClosureIds || []).length === 0}
+                            onClick={() => handleApproveAction(idx, 'approve', currentThreadId, msg.selectedClosureIds || [])}
+                            className="btn btn-primary btn-xs flex-1 font-bold rounded-lg uppercase tracking-wider shadow-lg shadow-primary/20"
+                          >
+                            {msg.approvalLoading ? <span className="loading loading-spinner loading-xs"></span> : `Close (${(msg.selectedClosureIds || []).length})`}
                           </button>
                           <button
                             disabled={msg.approvalLoading}

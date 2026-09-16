@@ -3,6 +3,9 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import api from "../services/api";
 import ChatWidget from "../components/ChatWidget";
 
+const CLOSED_STATUSES = ["completed", "resolved", "report sent"];
+const isClosed = (status) => CLOSED_STATUSES.includes((status || "").toLowerCase());
+
 const PatientDashboard = () => {
   const [tickets, setTickets] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -10,6 +13,7 @@ const PatientDashboard = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newTicket, setNewTicket] = useState({ title: "", description: "" });
   const [valError, setValError] = useState(null);
+  const [activeTab, setActiveTab] = useState("active");
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -76,6 +80,23 @@ const PatientDashboard = () => {
           </button>
         </div>
 
+        <div role="tablist" className="tabs tabs-boxed w-fit mb-6 bg-base-100 border border-white/5">
+          <a
+            role="tab"
+            className={`tab uppercase text-xs font-bold tracking-widest ${activeTab === "active" ? "tab-active" : ""}`}
+            onClick={() => setActiveTab("active")}
+          >
+            In Progress ({tickets.filter((t) => !isClosed(t.status)).length})
+          </a>
+          <a
+            role="tab"
+            className={`tab uppercase text-xs font-bold tracking-widest ${activeTab === "closed" ? "tab-active" : ""}`}
+            onClick={() => setActiveTab("closed")}
+          >
+            Closed ({tickets.filter((t) => isClosed(t.status)).length})
+          </a>
+        </div>
+
         {isLoading ? (
           <div className="flex justify-center py-20">
             <span className="loading loading-spinner loading-lg text-primary"></span>
@@ -86,7 +107,7 @@ const PatientDashboard = () => {
           </div>
         ) : (
           <div className="grid gap-6">
-            {tickets.map((ticket) => (
+            {tickets.filter((ticket) => (activeTab === "closed" ? isClosed(ticket.status) : !isClosed(ticket.status))).map((ticket) => (
               <div
                 key={ticket.id}
                 className="card bg-base-100 shadow-xl border border-white/5 hover:border-white/10 transition-all group"
@@ -124,10 +145,12 @@ const PatientDashboard = () => {
                 </div>
               </div>
             ))}
-            {tickets.length === 0 && (
+            {tickets.filter((ticket) => (activeTab === "closed" ? isClosed(ticket.status) : !isClosed(ticket.status))).length === 0 && (
               <div className="text-center p-16 card bg-base-100/50 border border-dashed border-white/10">
                 <p className="text-gray-500 font-medium">
-                  No tickets found. Create one to get started!
+                  {activeTab === "closed"
+                    ? "No closed tickets yet."
+                    : "No tickets found. Create one to get started!"}
                 </p>
               </div>
             )}

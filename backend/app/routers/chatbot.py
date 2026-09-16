@@ -127,7 +127,9 @@ async def chat_query(request: Request, payload: dict = Body(...), user = Depends
                         val = intr.value
                         if isinstance(val, dict) and val.get("action") == "approve_ticket":
                             yield f"data: {json.dumps({'status': 'requires_approval', 'ticket_details': val})}\n\n"
-                
+                        elif isinstance(val, dict) and val.get("action") == "approve_ticket_closures":
+                            yield f"data: {json.dumps({'status': 'requires_closure_approval', 'closure_details': val})}\n\n"
+
             yield "data: [DONE]\n\n"
         except Exception as e:
             print(f"Streaming Error: {e}")
@@ -140,6 +142,7 @@ async def chat_query(request: Request, payload: dict = Body(...), user = Depends
 async def chat_approve(request: Request, payload: dict = Body(...), user = Depends(require_user)):
     thread_id = payload.get("thread_id")
     action = payload.get("action")
+    selected_ids = payload.get("selected_ids")
 
     if not thread_id or not action:
         raise HTTPException(status_code=400, detail="thread_id and action are required")
@@ -165,15 +168,24 @@ async def chat_approve(request: Request, payload: dict = Body(...), user = Depen
         raise HTTPException(status_code=400, detail="No pending action/interrupt found for this session.")
         
     task_id = None
+    pending_action = None
     for t in getattr(state, "tasks", []):
-        if getattr(t, "interrupts", []):
+        interrupts = getattr(t, "interrupts", [])
+        if interrupts:
             task_id = t.id
+            val = interrupts[0].value
+            if isinstance(val, dict):
+                pending_action = val.get("action")
             break
-            
+
     if not task_id:
         raise HTTPException(status_code=400, detail="Could not identify the task to resume.")
-        
-    resume_payload = {"approved": True} if action == "approve" else {"approved": False}
+
+    approved = action == "approve"
+    if pending_action == "approve_ticket_closures":
+        resume_payload = {"approved": approved, "selected_ids": selected_ids or []}
+    else:
+        resume_payload = {"approved": approved}
     command = Command(resume=resume_payload)
     
     async def stream_generator():
@@ -194,7 +206,9 @@ async def chat_approve(request: Request, payload: dict = Body(...), user = Depen
                         val = intr.value
                         if isinstance(val, dict) and val.get("action") == "approve_ticket":
                             yield f"data: {json.dumps({'status': 'requires_approval', 'ticket_details': val})}\n\n"
-                            
+                        elif isinstance(val, dict) and val.get("action") == "approve_ticket_closures":
+                            yield f"data: {json.dumps({'status': 'requires_closure_approval', 'closure_details': val})}\n\n"
+
             yield "data: [DONE]\n\n"
         except Exception as e:
             print(f"Resume Streaming Error: {e}")
@@ -244,6 +258,7 @@ async def get_chat_history(request: Request, thread_id: str, user = Depends(requ
         messages = state.values.get("messages", [])
         
         pending_interrupt = None
+        pending_closure_interrupt = None
         if state.next:
             tasks = getattr(state, "tasks", [])
             for t in tasks:
@@ -252,6 +267,9 @@ async def get_chat_history(request: Request, thread_id: str, user = Depends(requ
                     val = intr.value
                     if isinstance(val, dict) and val.get("action") == "approve_ticket":
                         pending_interrupt = val
+                        break
+                    if isinstance(val, dict) and val.get("action") == "approve_ticket_closures":
+                        pending_closure_interrupt = val
                         break
         
         history = []
@@ -270,7 +288,7 @@ async def get_chat_history(request: Request, thread_id: str, user = Depends(requ
             if isinstance(msg, AIMessage):
                 
                 if hasattr(msg, "tool_calls") and msg.tool_calls:
-                    
+
                     is_pending = False
                     if pending_interrupt:
                         for tc in msg.tool_calls:
@@ -279,13 +297,27 @@ async def get_chat_history(request: Request, thread_id: str, user = Depends(requ
                                 if args.get("title") == pending_interrupt.get("title") and args.get("description") == pending_interrupt.get("description"):
                                     is_pending = True
                                     break
-                    
+
+                    is_pending_closure = False
+                    if pending_closure_interrupt:
+                        for tc in msg.tool_calls:
+                            if tc.get("name") == "analyze_closable_tickets":
+                                is_pending_closure = True
+                                break
+
                     if is_pending:
                         history.append({
                             "role": "assistant",
                             "content": "",
                             "requiresApproval": True,
                             "ticketDetails": pending_interrupt
+                        })
+                    elif is_pending_closure:
+                        history.append({
+                            "role": "assistant",
+                            "content": "",
+                            "requiresClosureApproval": True,
+                            "closureDetails": pending_closure_interrupt
                         })
                 else:
                     

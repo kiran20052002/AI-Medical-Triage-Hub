@@ -13,9 +13,15 @@ const AdminDashboard = () => {
   const [search, setSearch] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
+  const [knowledgeBase, setKnowledgeBase] = useState([]);
+  const [isKbLoading, setIsKbLoading] = useState(true);
+  const [expandedDoc, setExpandedDoc] = useState(null);
+  const [docChunks, setDocChunks] = useState(null);
+  const [deletingFilename, setDeletingFilename] = useState(null);
 
   useEffect(() => {
     fetchData();
+    fetchKnowledgeBase();
   }, []);
 
   const fetchData = async () => {
@@ -29,25 +35,75 @@ const AdminDashboard = () => {
     }
   };
 
+  const fetchKnowledgeBase = async () => {
+    try {
+      setIsKbLoading(true);
+      const response = await api.get('/admin/knowledge-base');
+      setKnowledgeBase(response.data.documents || []);
+    } catch (err) {
+      console.error('Failed to load knowledge base');
+    } finally {
+      setIsKbLoading(false);
+    }
+  };
+
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
-    
+
     const formData = new FormData();
     formData.append('file', file);
-    
+
     try {
       setIsUploading(true);
       await api.post('/admin/upload-medical-pdf', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       alert('PDF uploaded and processed successfully.');
+      fetchKnowledgeBase();
     } catch (err) {
       console.error(err);
       alert('Failed to upload PDF.');
     } finally {
       setIsUploading(false);
       event.target.value = null; // Reset input
+    }
+  };
+
+  const toggleDocExpand = async (filename) => {
+    if (expandedDoc === filename) {
+      setExpandedDoc(null);
+      setDocChunks(null);
+      return;
+    }
+    setExpandedDoc(filename);
+    setDocChunks(null);
+    try {
+      const response = await api.get(`/admin/knowledge-base/${encodeURIComponent(filename)}`);
+      setDocChunks(response.data.chunks || []);
+    } catch (err) {
+      console.error('Failed to load document chunks');
+      setDocChunks([]);
+    }
+  };
+
+  const handleDeleteDocument = async (filename) => {
+    if (!window.confirm(`Delete "${filename}" from the knowledge base? This removes all its chunks and embeddings.`)) {
+      return;
+    }
+    try {
+      setDeletingFilename(filename);
+      await api.delete(`/admin/knowledge-base/${encodeURIComponent(filename)}`);
+      if (expandedDoc === filename) {
+        setExpandedDoc(null);
+        setDocChunks(null);
+      }
+      fetchKnowledgeBase();
+    } catch (err) {
+      console.error(err);
+      alert('Failed to delete document.');
+    } finally {
+      setDeletingFilename(null);
     }
   };
 
@@ -105,6 +161,13 @@ const AdminDashboard = () => {
             onClick={() => setActiveTab('reports')}
           >
             Medical Reports
+          </button>
+          <button
+            role="tab"
+            className={`tab font-bold transition-all px-8 ${activeTab === 'knowledge' ? 'tab-active !bg-primary !text-white rounded-lg shadow-lg shadow-primary/20' : 'text-gray-500 hover:text-gray-300'}`}
+            onClick={() => setActiveTab('knowledge')}
+          >
+            Knowledge Base
           </button>
         </div>
 
@@ -190,6 +253,57 @@ const AdminDashboard = () => {
                         </div>
                       </div>
                     </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        {activeTab === 'knowledge' && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500 max-w-4xl">
+            {isKbLoading ? (
+              <div className="text-center py-16 text-gray-500 uppercase text-[10px] font-black tracking-[0.3em]">Loading...</div>
+            ) : knowledgeBase.length === 0 ? (
+              <div className="bg-base-100/30 backdrop-blur-md p-20 text-center rounded-3xl border border-white/5 shadow-xl">
+                <p className="text-gray-500 font-black uppercase text-[10px] tracking-[0.3em]">No documents ingested yet</p>
+              </div>
+            ) : (
+              knowledgeBase.map((doc) => (
+                <div key={doc.filename} className="collapse collapse-arrow bg-base-100/50 backdrop-blur-xl border border-white/5 shadow-lg rounded-2xl overflow-hidden">
+                  <input
+                    type="checkbox"
+                    checked={expandedDoc === doc.filename}
+                    onChange={() => toggleDocExpand(doc.filename)}
+                  />
+                  <div className="collapse-title text-lg font-bold text-white flex justify-between items-center py-6 px-8 pr-16">
+                    <div className="flex flex-col gap-1">
+                      <span>{doc.filename}</span>
+                      <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">
+                        {doc.chunk_count} chunk{doc.chunk_count === 1 ? '' : 's'} · Uploaded {new Date(doc.uploaded_at).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <button
+                      className={`btn btn-sm btn-error btn-outline ${deletingFilename === doc.filename ? 'loading' : ''}`}
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDeleteDocument(doc.filename); }}
+                      disabled={deletingFilename === doc.filename}
+                    >
+                      {deletingFilename === doc.filename ? '' : 'Delete'}
+                    </button>
+                  </div>
+                  <div className="collapse-content border-t border-white/5 p-8 bg-base-200/30">
+                    {docChunks === null ? (
+                      <p className="text-gray-500 text-sm">Loading chunks...</p>
+                    ) : (
+                      <div className="space-y-4">
+                        {docChunks.map((chunk) => (
+                          <div key={chunk.id} className="bg-base-100/40 rounded-xl p-4 border border-white/5">
+                            <div className="text-[10px] font-black uppercase tracking-widest text-primary mb-2">{chunk.title}</div>
+                            <p className="text-gray-400 text-sm whitespace-pre-wrap leading-relaxed">{chunk.content}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))

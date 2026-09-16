@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from app.utils.ai_utils import generate_embedding, llm, analyze_ticket_chat_ai, generate_closure_summary, generate_soap_note, pinecone_index
 from app.models import Report, Ticket, Patient, ChatMessage, MedicalDocumentChunk, MedicalDocumentParent
 from beanie import PydanticObjectId
+from beanie.operators import NotIn
 from langgraph.types import interrupt
 import asyncio
 import httpx
@@ -252,24 +253,79 @@ async def find_nearby_facility(location: str, facility_type: str = "hospital") -
 
 tools = [search_medical_knowledge, create_ticket, list_tickets, emergency, find_nearby_facility]
 
+async def _close_ticket_record(ticket: Ticket) -> str:
+    """Closes the given ticket in place and returns the AI-generated closure summary."""
+    chat_history_text = ""
+    if ticket.channel_id:
+        messages = await ChatMessage.find(ChatMessage.ticket_id == PydanticObjectId(ticket.id)).sort("created_at").limit(50).to_list()
+        chat_history_text = "\\n".join([f"{m.sender_name}: {m.text}" for m in messages])
+
+    context = (ticket.helpful_notes or "") + "\\n\\nChat History:\\n" + chat_history_text
+    summary = await generate_closure_summary(ticket.title, ticket.description, context)
+
+    ticket.status = "completed"
+    if ticket.helpful_notes:
+        ticket.helpful_notes += f"\\n\\n[CLOSURE]: {summary}"
+    else:
+        ticket.helpful_notes = f"[CLOSURE]: {summary}"
+
+    await ticket.save()
+    return summary
+
+
+async def _generate_report_record(ticket: Ticket, user_id: str) -> None:
+    """Generates and saves a SOAP note report for an already-closed ticket."""
+    chat_transcript = ""
+    if ticket.channel_id:
+        messages = await ChatMessage.find(ChatMessage.ticket_id == PydanticObjectId(ticket.id)).sort("created_at").limit(100).to_list()
+        chat_transcript = "\\n".join([f"{m.sender_name}: {m.text}" for m in messages])
+
+    content = await generate_soap_note(ticket.title, ticket.description, chat_transcript)
+    if not content:
+        content = {
+            "subjective": f"Complaint: {ticket.title}\\n{ticket.description}",
+            "objective": "None reported",
+            "assessment": "Pending AI analysis",
+            "plan": "Follow up required"
+        }
+
+    formatted_report = f"**SUBJECTIVE**: {content.get('subjective', '')}\\n**OBJECTIVE**: {content.get('objective', '')}\\n**ASSESSMENT**: {content.get('assessment', '')}\\n**PLAN**: {content.get('plan', '')}"
+
+    content['ticket_id'] = str(ticket.id)
+    content['doctor_id'] = str(user_id)
+
+    report = Report(
+        content=content,
+        formatted_report=formatted_report,
+        ticket_id=str(ticket.id)
+    )
+    await report.insert()
+
+    ticket.status = "Report Sent"
+    await ticket.save()
+
+
 @tool
 async def analyze_closable_tickets(config: RunnableConfig) -> str:
     """
-    Analyzes all open tickets assigned to the doctor and returns a list of tickets recommended for closure.
-    Use this tool when the doctor asks to find tickets that can be closed.
+    Analyzes tickets assigned to the doctor that are NOT already closed (excludes "completed" and "Report Sent"),
+    identifies which of those still-open tickets are recommended for closure, then pauses and asks the doctor
+    to explicitly pick which of the recommended tickets to close via a human-in-the-loop approval UI.
+    Only the tickets the doctor selects are closed (and get a report generated) — nothing is closed automatically.
+    Use this tool when the doctor asks to find tickets that can be closed, or to close closable tickets.
     """
-    try:
-        user_id = config.get("configurable", {}).get("user_id")
-        if not user_id:
-            return "Error: You must be logged in as a doctor to use this tool."
+    user_id = config.get("configurable", {}).get("user_id")
+    if not user_id:
+        return "Error: You must be logged in as a doctor to use this tool."
 
+    try:
         tickets = await Ticket.find(
             Ticket.assigned_to == PydanticObjectId(user_id),
-            Ticket.status.nin(["completed", "Report Sent"])
+            NotIn(Ticket.status, ["completed", "Report Sent"])
         ).to_list()
 
         if not tickets:
-            return "You have no open tickets."
+            return "CRITICAL INSTRUCTION: Relay this message to the doctor exactly. You have no open tickets."
 
         closable_tickets = []
         for ticket in tickets:
@@ -278,11 +334,12 @@ async def analyze_closable_tickets(config: RunnableConfig) -> str:
             messages = await ChatMessage.find(ChatMessage.ticket_id == PydanticObjectId(ticket.id)).sort("created_at").limit(50).to_list()
             if not messages:
                 continue
-                
+
             formatted_messages = [{"user": {"name": m.sender_name}, "text": m.text} for m in messages]
             analysis = await analyze_ticket_chat_ai(formatted_messages)
-            
-            if analysis and analysis.get("recommendedStatus") != "In Progress":
+
+            recommended_status = (analysis.get("recommendedStatus") or "").strip().lower() if analysis else ""
+            if analysis and recommended_status != "in_progress":
                 closable_tickets.append({
                     "id": str(ticket.id),
                     "title": ticket.title,
@@ -290,45 +347,63 @@ async def analyze_closable_tickets(config: RunnableConfig) -> str:
                 })
 
         if not closable_tickets:
-            return "No tickets are currently recommended for closure based on AI analysis."
-
-        formatted = ["CRITICAL INSTRUCTION: Show this list exactly as provided.", "Here are the tickets recommended for closure:"]
-        for t in closable_tickets:
-            formatted.append(f"- Ticket ID: {t['id']} | Title: {t['title']} | Reasoning: {t['reasoning']}")
-        return "\n".join(formatted)
-
+            return "CRITICAL INSTRUCTION: Relay this message to the doctor exactly. No tickets are currently recommended for closure based on AI analysis of the chat history."
     except Exception as e:
-        return f"Error analyzing tickets: {str(e)}"
+        return f"CRITICAL INSTRUCTION: Relay this exact error message to the doctor, verbatim, do not paraphrase or soften it. Error analyzing tickets: {str(e)}"
+
+    approval = interrupt({
+        "action": "approve_ticket_closures",
+        "candidates": closable_tickets
+    })
+
+    if not approval or not approval.get("approved", False):
+        return "Ticket closure cancelled by doctor. No tickets were closed."
+
+    selected_ids = approval.get("selected_ids") or []
+    candidate_ids = {t["id"] for t in closable_tickets}
+    valid_selected_ids = [sid for sid in selected_ids if sid in candidate_ids]
+
+    if not valid_selected_ids:
+        return "No tickets were selected for closure. No tickets were closed."
+
+    closed_results = []
+    for ticket_id in valid_selected_ids:
+        try:
+            ticket = await Ticket.get(ticket_id)
+            if not ticket or str(ticket.assigned_to) != user_id:
+                closed_results.append(f"- Ticket {ticket_id}: Error, not found or not authorized.")
+                continue
+
+            await _close_ticket_record(ticket)
+            await _generate_report_record(ticket, user_id)
+            closed_results.append(f"- Ticket {ticket_id} ({ticket.title}): Closed and report sent.")
+        except Exception as e:
+            closed_results.append(f"- Ticket {ticket_id}: Error closing ticket - {str(e)}")
+
+    formatted = [
+        "CRITICAL INSTRUCTION: Show this summary exactly as provided.",
+        f"Closed {len(valid_selected_ids)} ticket(s) as confirmed by the doctor:"
+    ]
+    formatted.extend(closed_results)
+    return "\n".join(formatted)
 
 @tool
 async def close_ticket(ticket_id: str, config: RunnableConfig) -> str:
     """
-    Closes a specific ticket and adds an AI-generated summary to the helpful notes.
+    Closes a specific ticket (by ID, as explicitly requested by the doctor) and adds an AI-generated summary
+    to the helpful notes. Use this only for a single ticket the doctor has directly named, not for bulk closure
+    (use analyze_closable_tickets for bulk closure, which handles doctor confirmation itself).
     """
     try:
         user_id = config.get("configurable", {}).get("user_id")
         ticket = await Ticket.get(ticket_id)
         if not ticket:
             return f"Error: Ticket {ticket_id} not found."
-            
+
         if str(ticket.assigned_to) != user_id:
             return f"Error: You are not authorized to close Ticket {ticket_id}."
 
-        chat_history_text = ""
-        if ticket.channel_id:
-            messages = await ChatMessage.find(ChatMessage.ticket_id == PydanticObjectId(ticket.id)).sort("created_at").limit(50).to_list()
-            chat_history_text = "\\n".join([f"{m.sender_name}: {m.text}" for m in messages])
-
-        context = (ticket.helpful_notes or "") + "\\n\\nChat History:\\n" + chat_history_text
-        summary = await generate_closure_summary(ticket.title, ticket.description, context)
-
-        ticket.status = "completed"
-        if ticket.helpful_notes:
-            ticket.helpful_notes += f"\\n\\n[CLOSURE]: {summary}"
-        else:
-            ticket.helpful_notes = f"[CLOSURE]: {summary}"
-
-        await ticket.save()
+        await _close_ticket_record(ticket)
         return f"Ticket {ticket_id} successfully closed. Summary added."
 
     except Exception as e:
@@ -344,40 +419,11 @@ async def generate_report(ticket_id: str, config: RunnableConfig) -> str:
         ticket = await Ticket.get(ticket_id)
         if not ticket:
             return f"Error: Ticket {ticket_id} not found."
-            
+
         if ticket.status != "completed":
             return f"Error: Ticket {ticket_id} must be closed before generating a report."
 
-        chat_transcript = ""
-        if ticket.channel_id:
-            messages = await ChatMessage.find(ChatMessage.ticket_id == PydanticObjectId(ticket.id)).sort("created_at").limit(100).to_list()
-            chat_transcript = "\\n".join([f"{m.sender_name}: {m.text}" for m in messages])
-
-        content = await generate_soap_note(ticket.title, ticket.description, chat_transcript)
-        if not content:
-            content = {
-                "subjective": f"Complaint: {ticket.title}\\n{ticket.description}",
-                "objective": "None reported",
-                "assessment": "Pending AI analysis",
-                "plan": "Follow up required"
-            }
-
-        formatted_report = f"**SUBJECTIVE**: {content.get('subjective', '')}\\n**OBJECTIVE**: {content.get('objective', '')}\\n**ASSESSMENT**: {content.get('assessment', '')}\\n**PLAN**: {content.get('plan', '')}"
-
-        content['ticket_id'] = str(ticket.id)
-        content['doctor_id'] = str(user_id)
-
-        report = Report(
-            content=content,
-            formatted_report=formatted_report,
-            ticket_id=str(ticket.id)
-        )
-        await report.insert()
-
-        ticket.status = "Report Sent"
-        await ticket.save()
-
-        # asyncio.create_task(generate_embedding(f"Subjective: {content.get('subjective')}\\nObjective: {content.get('objective')}\\nAssessment: {content.get('assessment')}"))
+        await _generate_report_record(ticket, user_id)
 
         return f"Report generated and sent for ticket {ticket_id} successfully."
 
